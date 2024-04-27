@@ -1,64 +1,25 @@
-import spock.lang.Specification
-import org.springframework.core.io.Resource
-import org.springframework.jdbc.datasource.DriverManagerDataSource
-import org.springframework.jdbc.datasource.init.ScriptUtils
-import org.springframework.context.ApplicationContext
-import org.springframework.context.annotation.AnnotationConfigApplicationContext
-import org.springframework.context.annotation.Bean
-import org.springframework.context.annotation.Configuration
-import org.springframework.context.annotation.Import
-import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseBuilder
-import org.springframework.jdbc.datasource.embedded.EmbeddedDatabaseType
-import org.springframework.transaction.PlatformTransactionManager
-import org.springframework.transaction.annotation.EnableTransactionManagement
-import liquibase.integration.spring.SpringLiquibase
-import javax.sql.DataSource
-import liquibase.exception.LiquibaseException
-import org.mockito.Mockito
+<?xml version="1.0" encoding="UTF-8"?>
+<databaseChangeLog xmlns="http://www.liquibase.org/xml/ns/dbchangelog"
+                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+                   xsi:schemaLocation="http://www.liquibase.org/xml/ns/dbchangelog
+                   http://www.liquibase.org/xml/ns/dbchangelog/dbchangelog-4.3.xsd">
 
-class AbstractLiquibaseConfigurationSpec extends Specification {
+    <changeSet id="createStudentTable" author="YourName">
+        <createTable tableName="student">
+            <column name="id" type="bigint" autoIncrement="true">
+                <constraints primaryKey="true" nullable="false"/>
+            </column>
+            <column name="first_name" type="varchar(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="last_name" type="varchar(50)">
+                <constraints nullable="false"/>
+            </column>
+            <column name="age" type="int">
+                <constraints nullable="false"/>
+            </column>
+            <!-- Add more columns as needed -->
+        </createTable>
+    </changeSet>
 
-    def "Test Liquibase configuration fails as expected"() {
-        given:
-        def dataSource = Mock(DataSource)
-        dataSource.getConnection() >> { throw new SQLException("Connection failed") }
-
-        def applicationContext = new AnnotationConfigApplicationContext(Config)
-        applicationContext.registerBean(DataSource, { dataSource })
-        applicationContext.registerBean(SpringLiquibase)
-
-        when:
-        def exceptionThrown = false
-        try {
-            applicationContext.refresh()
-        } catch (Exception e) {
-            exceptionThrown = true
-        }
-
-        then:
-        exceptionThrown
-    }
-
-    @Configuration
-    @EnableTransactionManagement
-    static class Config {
-
-        @Bean
-        public PlatformTransactionManager transactionManager() {
-            return Mockito.mock(PlatformTransactionManager)
-        }
-
-        @Bean
-        public DataSource dataSource() {
-            return new DriverManagerDataSource()
-        }
-
-        @Bean
-        public SpringLiquibase liquibase(DataSource dataSource) {
-            SpringLiquibase liquibase = new SpringLiquibase();
-            liquibase.setDataSource(dataSource);
-            liquibase.setChangeLog("classpath:liquibase/master-changelog.xml");
-            return liquibase;
-        }
-    }
-}
+</databaseChangeLog>
