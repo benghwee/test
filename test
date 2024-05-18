@@ -1,33 +1,107 @@
-import org.junit.rules.ExternalResource
-import org.slf4j.Logger
-import java.lang.reflect.Field
-import java.lang.reflect.Modifier
+package com.himanshu.kafkabinder;
 
-public class ReplaceSlf4jLogger extends ExternalResource {
-    Field logField
-    Logger logger
-    Logger originalLogger
+import example.avro.User;
+import io.confluent.kafka.serializers.AbstractKafkaAvroSerDeConfig;
+import io.confluent.kafka.serializers.KafkaAvroDeserializerConfig;
+import io.confluent.kafka.serializers.KafkaAvroSerializer;
+import org.apache.avro.specific.SpecificRecord;
+import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.clients.consumer.ConsumerConfig;
+import org.apache.kafka.clients.consumer.ConsumerRecord;
+import org.apache.kafka.clients.consumer.KafkaConsumer;
+import org.apache.kafka.clients.producer.KafkaProducer;
+import org.apache.kafka.clients.producer.Producer;
+import org.apache.kafka.clients.producer.ProducerConfig;
+import org.apache.kafka.clients.producer.ProducerRecord;
+import org.apache.kafka.common.serialization.StringDeserializer;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
+import org.springframework.kafka.core.DefaultKafkaProducerFactory;
+import org.springframework.kafka.test.EmbeddedKafkaBroker;
+import org.springframework.kafka.test.context.EmbeddedKafka;
+import org.springframework.kafka.test.utils.KafkaTestUtils;
+import org.springframework.test.context.ActiveProfiles;
 
-    ReplaceSlf4jLogger(Class logClass, Logger logger) {
-        logField = logClass.getDeclaredField("log");
-        this.logger = logger
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Properties;
+
+import io.confluent.kafka.serializers.KafkaAvroDeserializer;
+
+import static io.confluent.kafka.serializers.AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG;
+import static org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG;
+import static org.apache.kafka.clients.producer.ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG;
+import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+
+
+@SpringBootTest(classes = SimpleKafkaTest.SampleConfiguration.class)
+@ActiveProfiles("test")
+@EmbeddedKafka(partitions = 1, topics = { "testTopic" })
+public class SimpleKafkaTest {
+    private static final String TEST_TOPIC = "testTopic";
+    private final static String BOOTSTRAP_SERVERS = "localhost:9092";
+    @Autowired
+    EmbeddedKafkaBroker embeddedKafkaBroker;
+
+    @Test
+    public void testReceivingKafkaEvents() {
+        Consumer<String, SpecificRecord> consumer = configureConsumer();
+        Producer<String, SpecificRecord> producer = configureProducer();
+        User user1 = new User();
+        user1.setName("Alyssa");
+        user1.setFavoriteNumber(256);
+        producer.send(new ProducerRecord<>(TEST_TOPIC, "123", user1));
+
+        ConsumerRecord<String, SpecificRecord> singleRecord = KafkaTestUtils.getSingleRecord(consumer, TEST_TOPIC);
+
+        assertThat(singleRecord).isNotNull();
+        //assertThat(singleRecord.key()).isEqualTo(123);
+        assertThat(((User)singleRecord.value()).getFavoriteNumber()).isEqualTo(256);
+        Object o = singleRecord.value();
+        System.out.println(o.getClass());
+        consumer.close();
+        producer.close();
     }
 
-    @Override
-    protected void before() throws Throwable {
-        logField.accessible = true
-
-        Field modifiersField = Field.getDeclaredField("modifiers")
-        modifiersField.accessible = true
-        modifiersField.setInt(logField, logField.getModifiers() & ~Modifier.FINAL)
-
-        originalLogger = (Logger) logField.get(null)
-        logField.set(null, logger)
+    private Consumer<String, SpecificRecord> configureConsumer() {
+        Map<String, Object> consumerProps = KafkaTestUtils.consumerProps("testGroup", "true", embeddedKafkaBroker);
+        //Properties consumerProps = new Properties();
+        //consumerProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, BOOTSTRAP_SERVERS);
+        consumerProps.put(ConsumerConfig.GROUP_ID_CONFIG, "KafkaExampleAvroConsumer");
+        consumerProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
+        consumerProps.put(VALUE_DESERIALIZER_CLASS_CONFIG, KafkaAvroDeserializer.class.getName());
+        consumerProps.put(SCHEMA_REGISTRY_URL_CONFIG, "mock://localhost.something");
+        consumerProps.put(KafkaAvroDeserializerConfig.SPECIFIC_AVRO_READER_CONFIG, "true");
+        //Consumer<String, SpecificRecord> consumer = new DefaultKafkaConsumerFactory<String, SpecificRecord>(consumerProps)
+                //.createConsumer();
+        Consumer<String, SpecificRecord> consumer = new KafkaConsumer<>(consumerProps);
+        consumer.subscribe(Collections.singleton(TEST_TOPIC));
+        return consumer;
     }
 
-    @Override
-    protected void after() {
-        logField.set(null, originalLogger)
+    private Producer<String, SpecificRecord> configureProducer() {
+        Map<String, Object> producerProps = new HashMap<>(KafkaTestUtils.producerProps(embeddedKafkaBroker));
+        //Properties producerProps = new Properties();
+        producerProps.put(ProducerConfig.CLIENT_ID_CONFIG, "AvroProducer");
+        //producerProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
+        producerProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
+                org.apache.kafka.common.serialization.StringSerializer.class.getName());
+        producerProps.put(VALUE_SERIALIZER_CLASS_CONFIG, KafkaAvroSerializer.class.getName());
+        producerProps.put(SCHEMA_REGISTRY_URL_CONFIG, "mock://localhost.something");
+        producerProps.put(AbstractKafkaAvroSerDeConfig.AUTO_REGISTER_SCHEMAS, true);
+        return new KafkaProducer<>(producerProps);
+        //return new DefaultKafkaProducerFactory<String, SpecificRecord>(producerProps).createProducer();
     }
 
+    @SpringBootApplication
+    //@Import(TestChannelBinderConfiguration.class)
+    public static class SampleConfiguration {
+
+
+
+    }
 }
