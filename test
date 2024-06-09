@@ -1,107 +1,160 @@
-package com.himanshu.kafkabinder;
+package io.clients.feign.comment;
 
-import example.avro.User;
-import io.confluent.kafka.serializers.AbstractKafkaAvroSerDeConfig;
-import io.confluent.kafka.serializers.KafkaAvroDeserializerConfig;
-import io.confluent.kafka.serializers.KafkaAvroSerializer;
-import org.apache.avro.specific.SpecificRecord;
-import org.apache.kafka.clients.consumer.Consumer;
-import org.apache.kafka.clients.consumer.ConsumerConfig;
-import org.apache.kafka.clients.consumer.ConsumerRecord;
-import org.apache.kafka.clients.consumer.KafkaConsumer;
-import org.apache.kafka.clients.producer.KafkaProducer;
-import org.apache.kafka.clients.producer.Producer;
-import org.apache.kafka.clients.producer.ProducerConfig;
-import org.apache.kafka.clients.producer.ProducerRecord;
-import org.apache.kafka.common.serialization.StringDeserializer;
-import org.junit.jupiter.api.Test;
-import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.boot.test.context.SpringBootTest;
-import org.springframework.kafka.core.DefaultKafkaConsumerFactory;
-import org.springframework.kafka.core.DefaultKafkaProducerFactory;
-import org.springframework.kafka.test.EmbeddedKafkaBroker;
-import org.springframework.kafka.test.context.EmbeddedKafka;
-import org.springframework.kafka.test.utils.KafkaTestUtils;
-import org.springframework.test.context.ActiveProfiles;
+import java.io.IOException;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.Date;
 
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Properties;
+import feign.FeignException;
+import feign.Response;
+import feign.RetryableException;
+import feign.Util;
+import feign.codec.ErrorDecoder;
 
-import io.confluent.kafka.serializers.KafkaAvroDeserializer;
+public class CustomDecoder implements ErrorDecoder{
 
-import static io.confluent.kafka.serializers.AbstractKafkaSchemaSerDeConfig.SCHEMA_REGISTRY_URL_CONFIG;
-import static org.apache.kafka.clients.consumer.ConsumerConfig.VALUE_DESERIALIZER_CLASS_CONFIG;
-import static org.apache.kafka.clients.producer.ProducerConfig.VALUE_SERIALIZER_CLASS_CONFIG;
-import static org.assertj.core.api.AssertionsForClassTypes.assertThat;
+	@Override
+	public Exception decode(String methodKey, Response response) {
+		byte[] body = {};
+		try {
+			if (response.body() != null) {
+				body = Util.toByteArray(response.body().asInputStream());
+			}
+		} catch (IOException ignored) {
+			// defensive catch
+		}
+		FeignException exception = new FeignException.BadRequest(response.reason(), response.request(), body,
+				response.headers());
+		if (response.status() >= 400) {
+			return new RetryableException(response.status(), response.reason(), response.request().httpMethod(),
+					exception, Date.from(Instant.now().plus(15, ChronoUnit.MILLIS)), response.request());
+		}
+		return exception;
+	}
+
+}
+
+package io.clients.feign.comment;
+
+import static java.util.concurrent.TimeUnit.SECONDS;
+
+import feign.RetryableException;
+import feign.Retryer;
+import lombok.extern.slf4j.Slf4j;
+
+@Slf4j
+public class CustomRetryer implements Retryer{
+	
+	private int retryMaxAttempt;
+
+    private long retryInterval;
+
+    private int attempt = 1;
+    
+    private final int DEFAULT_RETRY = 3;
+    
+    private final long DEFAULT_INTERVAL = SECONDS.toMillis(5);
 
 
-@SpringBootTest(classes = SimpleKafkaTest.SampleConfiguration.class)
-@ActiveProfiles("test")
-@EmbeddedKafka(partitions = 1, topics = { "testTopic" })
-public class SimpleKafkaTest {
-    private static final String TEST_TOPIC = "testTopic";
-    private final static String BOOTSTRAP_SERVERS = "localhost:9092";
-    @Autowired
-    EmbeddedKafkaBroker embeddedKafkaBroker;
-
-    @Test
-    public void testReceivingKafkaEvents() {
-        Consumer<String, SpecificRecord> consumer = configureConsumer();
-        Producer<String, SpecificRecord> producer = configureProducer();
-        User user1 = new User();
-        user1.setName("Alyssa");
-        user1.setFavoriteNumber(256);
-        producer.send(new ProducerRecord<>(TEST_TOPIC, "123", user1));
-
-        ConsumerRecord<String, SpecificRecord> singleRecord = KafkaTestUtils.getSingleRecord(consumer, TEST_TOPIC);
-
-        assertThat(singleRecord).isNotNull();
-        //assertThat(singleRecord.key()).isEqualTo(123);
-        assertThat(((User)singleRecord.value()).getFavoriteNumber()).isEqualTo(256);
-        Object o = singleRecord.value();
-        System.out.println(o.getClass());
-        consumer.close();
-        producer.close();
+    public CustomRetryer(int retryMaxAttempt, Long retryInterval) {
+        this.retryMaxAttempt = retryMaxAttempt <= 0 ? DEFAULT_RETRY : retryMaxAttempt;
+        this.retryInterval = retryInterval <= 0 ? DEFAULT_INTERVAL : retryInterval;
     }
 
-    private Consumer<String, SpecificRecord> configureConsumer() {
-        Map<String, Object> consumerProps = KafkaTestUtils.consumerProps("testGroup", "true", embeddedKafkaBroker);
-        //Properties consumerProps = new Properties();
-        //consumerProps.put(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG, BOOTSTRAP_SERVERS);
-        consumerProps.put(ConsumerConfig.GROUP_ID_CONFIG, "KafkaExampleAvroConsumer");
-        consumerProps.put(ConsumerConfig.KEY_DESERIALIZER_CLASS_CONFIG, StringDeserializer.class.getName());
-        consumerProps.put(VALUE_DESERIALIZER_CLASS_CONFIG, KafkaAvroDeserializer.class.getName());
-        consumerProps.put(SCHEMA_REGISTRY_URL_CONFIG, "mock://localhost.something");
-        consumerProps.put(KafkaAvroDeserializerConfig.SPECIFIC_AVRO_READER_CONFIG, "true");
-        //Consumer<String, SpecificRecord> consumer = new DefaultKafkaConsumerFactory<String, SpecificRecord>(consumerProps)
-                //.createConsumer();
-        Consumer<String, SpecificRecord> consumer = new KafkaConsumer<>(consumerProps);
-        consumer.subscribe(Collections.singleton(TEST_TOPIC));
-        return consumer;
+    @Override
+    public void continueOrPropagate(RetryableException e) {
+        log.info("Feign retry attempt {} due to {} ",  attempt , e.getMessage());
+
+        if(attempt++ == retryMaxAttempt){
+            throw e;
+        }
+        try {
+            Thread.sleep(retryInterval);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
     }
 
-    private Producer<String, SpecificRecord> configureProducer() {
-        Map<String, Object> producerProps = new HashMap<>(KafkaTestUtils.producerProps(embeddedKafkaBroker));
-        //Properties producerProps = new Properties();
-        producerProps.put(ProducerConfig.CLIENT_ID_CONFIG, "AvroProducer");
-        //producerProps.put(ProducerConfig.BOOTSTRAP_SERVERS_CONFIG, "localhost:9092");
-        producerProps.put(ProducerConfig.KEY_SERIALIZER_CLASS_CONFIG,
-                org.apache.kafka.common.serialization.StringSerializer.class.getName());
-        producerProps.put(VALUE_SERIALIZER_CLASS_CONFIG, KafkaAvroSerializer.class.getName());
-        producerProps.put(SCHEMA_REGISTRY_URL_CONFIG, "mock://localhost.something");
-        producerProps.put(AbstractKafkaAvroSerDeConfig.AUTO_REGISTER_SCHEMAS, true);
-        return new KafkaProducer<>(producerProps);
-        //return new DefaultKafkaProducerFactory<String, SpecificRecord>(producerProps).createProducer();
+    @Override
+    public Retryer clone() {
+        return new CustomRetryer(retryMaxAttempt, retryInterval);
+    }
+}
+
+
+import spock.lang.Specification
+import feign.RetryableException
+
+class CustomRetryerSpec extends Specification {
+
+    def "test continueOrPropagate with RetryableException"() {
+        given:
+        def retryer = new CustomRetryer(3, 5000L)
+        def exception = new RetryableException(500, "Internal Server Error", null)
+
+        when:
+        retryer.continueOrPropagate(exception)
+
+        then:
+        assert retryer.attempt == 2
+        assert thrown(RetryableException) { throw retryer.continueOrPropagate(exception) }
     }
 
-    @SpringBootApplication
-    //@Import(TestChannelBinderConfiguration.class)
-    public static class SampleConfiguration {
+    def "test continueOrPropagate throws RetryableException when max attempts reached"() {
+        given:
+        def retryer = new CustomRetryer(2, 5000L)
+        def exception = new RetryableException(500, "Internal Server Error", null)
+
+        when:
+        retryer.continueOrPropagate(exception)
+
+        then:
+        thrown(RetryableException)
+        assert retryer.attempt == 2
+    }
+}
 
 
+import spock.lang.Specification
+import feign.FeignException
+import feign.Request
+import feign.Response
+import feign.RetryableException
 
+class CustomDecoderSpec extends Specification {
+
+    def "test decode with 400 error"() {
+        given:
+        def decoder = new CustomDecoder()
+        def response = createResponse(400, "Bad Request", "Error message")
+
+        when:
+        def result = decoder.decode("methodKey", response)
+
+        then:
+        assert result instanceof FeignException.BadRequest
+        assert result.getMessage() == "Bad Request"
+    }
+
+    def "test decode with 500 error"() {
+        given:
+        def decoder = new CustomDecoder()
+        def response = createResponse(500, "Internal Server Error", "Error message")
+
+        when:
+        def result = decoder.decode("methodKey", response)
+
+        then:
+        assert result instanceof RetryableException
+        assert result.getMessage() == "Internal Server Error"
+    }
+
+    def createResponse(status, reason, body) {
+        def response = Mock(Response)
+        1 * response.status() >> status
+        1 * response.reason() >> reason
+        1 * response.body() >> body.bytes
+        1 * response.request() >> Mock(Request)
+        return response
     }
 }
