@@ -1,0 +1,249 @@
+package org.example;
+
+import javax.swing.*;
+import javax.swing.table.DefaultTableModel;
+import javax.swing.table.TableCellRenderer;
+import javax.swing.table.TableCellEditor;
+import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.awt.event.ActionListener;
+import java.util.Date;
+
+public class SwingTableApp {
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> {
+            JFrame frame = new JFrame("Swing Table App");
+            frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+            frame.setSize(700, 500);
+
+            // Menu setup
+            JMenuBar menuBar = new JMenuBar();
+            JMenu fileMenu = new JMenu("File");
+            JMenuItem exitItem = new JMenuItem("Exit");
+            exitItem.addActionListener(e -> System.exit(0));
+            JMenuItem listOrderItem = new JMenuItem("List Order");
+            listOrderItem.addActionListener(e -> {
+                JSpinner dateTimeSpinner = new JSpinner(new SpinnerDateModel());
+                JSpinner.DateEditor editor = new JSpinner.DateEditor(dateTimeSpinner, "yyyy-MM-dd HH:mm:ss");
+                dateTimeSpinner.setEditor(editor);
+
+                int result = JOptionPane.showConfirmDialog(frame, dateTimeSpinner, "Enter Start Schedule DateTime", JOptionPane.OK_CANCEL_OPTION);
+                if (result == JOptionPane.OK_OPTION) {
+                    Date startDate = (Date) dateTimeSpinner.getValue();
+                    JOptionPane.showMessageDialog(frame, "Start Schedule DateTime: " + startDate, "Info", JOptionPane.INFORMATION_MESSAGE);
+                }
+            });
+            fileMenu.add(listOrderItem);
+            fileMenu.add(exitItem);
+
+            JMenu editMenu = new JMenu("Edit");
+            JMenuItem addRowItem = new JMenuItem("Add Row");
+            JMenuItem removeRowItem = new JMenuItem("Remove Row");
+
+            editMenu.add(addRowItem);
+            editMenu.add(removeRowItem);
+
+            menuBar.add(fileMenu);
+            menuBar.add(editMenu);
+            frame.setJMenuBar(menuBar);
+
+            // Table setup
+            String[] columnNames = {"Module", "FC", "Version Limit", "Checkbox", "Schedule DateTime", "Action"};
+            DefaultTableModel tableModel = new DefaultTableModel(columnNames, 0) {
+                @Override
+                public boolean isCellEditable(int row, int column) {
+                    return true; // All cells are editable
+                }
+
+                @Override
+                public Class<?> getColumnClass(int columnIndex) {
+                    if (columnIndex == 3) {
+                        return Boolean.class; // Checkbox column
+                    }
+                    if (columnIndex == 4) {
+                        return Date.class; // Schedule DateTime column
+                    }
+                    return super.getColumnClass(columnIndex);
+                }
+            };
+            JTable table = new JTable(tableModel);
+
+            // Add a custom renderer and editor for the "Schedule DateTime" column
+            table.getColumn("Schedule DateTime").setCellRenderer(new DateTimeRenderer());
+            table.getColumn("Schedule DateTime").setCellEditor(new DateTimeEditor());
+
+            // Add a custom renderer and editor for the "Action" column
+            table.getColumn("Action").setCellRenderer(new ButtonRenderer());
+            table.getColumn("Action").setCellEditor(new ButtonEditor(new JCheckBox(), tableModel, table));
+
+            JScrollPane scrollPane = new JScrollPane(table);
+
+            // Add some sample data
+            tableModel.addRow(new Object[]{"Module1", "123", "v1.0", false, new Date(), "Action"});
+            tableModel.addRow(new Object[]{"Module2", "456", "v2.0", false, new Date(), "Action"});
+
+            // Buttons setup
+            JButton addButton = new JButton("Add Row");
+            JButton removeButton = new JButton("Remove Row");
+
+            // Button actions
+            addButton.addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    int result = JOptionPane.showConfirmDialog(frame, "Are you sure you want to add a new row?", "Confirm Add", JOptionPane.YES_NO_OPTION);
+                    if (result == JOptionPane.YES_OPTION) {
+                        tableModel.addRow(new Object[]{"", "", "", false, new Date(), "Action"});
+                    }
+                }
+            });
+
+            removeButton.addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    int selectedRow = table.getSelectedRow();
+                    if (selectedRow != -1) {
+                        int result = JOptionPane.showConfirmDialog(frame, "Are you sure you want to remove the selected row?", "Confirm Remove", JOptionPane.YES_NO_OPTION);
+                        if (result == JOptionPane.YES_OPTION) {
+                            tableModel.removeRow(selectedRow);
+                        }
+                    } else {
+                        JOptionPane.showMessageDialog(frame, "Please select a row to remove.", "Error", JOptionPane.ERROR_MESSAGE);
+                    }
+                }
+            });
+
+            // Add actions to menu items
+            addRowItem.addActionListener(e -> addButton.doClick());
+            removeRowItem.addActionListener(e -> removeButton.doClick());
+
+            // Console log area
+            JTextArea consoleLog = new JTextArea(5, 50);
+            consoleLog.setEditable(false);
+            JScrollPane consoleScrollPane = new JScrollPane(consoleLog);
+
+            // Layout setup
+            JPanel buttonPanel = new JPanel();
+            buttonPanel.add(addButton);
+            buttonPanel.add(removeButton);
+
+            frame.setLayout(new BorderLayout());
+            frame.add(scrollPane, BorderLayout.CENTER);
+            frame.add(buttonPanel, BorderLayout.NORTH);
+            frame.add(consoleScrollPane, BorderLayout.SOUTH);
+
+            frame.setVisible(true);
+
+            // Log action listener
+            tableModel.addTableModelListener(e -> {
+                int row = e.getFirstRow();
+                int column = e.getColumn();
+                if (column != -1) {
+                    Object data = tableModel.getValueAt(row, column);
+                    consoleLog.append("Cell updated at row " + row + ", column " + column + ": " + data + "\n");
+                }
+            });
+        });
+    }
+
+    // Custom renderer for the "Action" column
+    static class ButtonRenderer extends JButton implements TableCellRenderer {
+        public ButtonRenderer() {
+            setOpaque(true);
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            setText((value == null) ? "Action" : value.toString());
+            return this;
+        }
+    }
+
+    // Custom editor for the "Action" column
+    static class ButtonEditor extends DefaultCellEditor {
+        private JButton button;
+        private String label;
+        private boolean clicked;
+        private DefaultTableModel tableModel;
+        private JTable table;
+
+        public ButtonEditor(JCheckBox checkBox, DefaultTableModel tableModel, JTable table) {
+            super(checkBox);
+            this.tableModel = tableModel;
+            this.table = table;
+            button = new JButton();
+            button.setOpaque(true);
+            button.addActionListener(new ActionListener() {
+                @Override
+                public void actionPerformed(ActionEvent e) {
+                    fireEditingStopped();
+                }
+            });
+        }
+
+        @Override
+        public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
+            label = (value == null) ? "Action" : value.toString();
+            button.setText(label);
+            clicked = true;
+            return button;
+        }
+
+        @Override
+        public Object getCellEditorValue() {
+            if (clicked) {
+                int row = table.getSelectedRow();
+                tableModel.setValueAt(true, row, 3); // Set checkbox to true
+            }
+            clicked = false;
+            return label;
+        }
+
+        @Override
+        public boolean stopCellEditing() {
+            clicked = false;
+            return super.stopCellEditing();
+        }
+
+        @Override
+        protected void fireEditingStopped() {
+            super.fireEditingStopped();
+        }
+    }
+
+    // Custom renderer for the "Schedule DateTime" column
+    static class DateTimeRenderer extends JSpinner implements TableCellRenderer {
+        public DateTimeRenderer() {
+            super(new SpinnerDateModel());
+            JSpinner.DateEditor editor = new JSpinner.DateEditor(this, "yyyy-MM-dd HH:mm:ss");
+            setEditor(editor);
+        }
+
+        @Override
+        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
+            setValue(value);
+            return this;
+        }
+    }
+
+    // Custom editor for the "Schedule DateTime" column
+    static class DateTimeEditor extends AbstractCellEditor implements TableCellEditor {
+        private JSpinner spinner;
+
+        public DateTimeEditor() {
+            spinner = new JSpinner(new SpinnerDateModel());
+            JSpinner.DateEditor editor = new JSpinner.DateEditor(spinner, "yyyy-MM-dd HH:mm:ss");
+            spinner.setEditor(editor);
+        }
+
+        @Override
+        public Object getCellEditorValue() {
+            return spinner.getValue();
+        }
+
+        @Override
+        public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
+            spinner.setValue(value);
+            return spinner;
+        }
+    }
+}
