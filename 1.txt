@@ -1,3 +1,39 @@
+  @Override
+    public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
+        label = (value == null) ? "Action" : value.toString();
+        button.setText(label);
+        clicked = true;
+        return button;
+    }
+
+    @Override
+    public Object getCellEditorValue() {
+        if (clicked) {
+            // Get the selected row index
+            int row = table.getSelectedRow();
+
+            // Retrieve all values from the row
+            Object[] rowData = new Object[table.getColumnCount()];
+            for (int col = 0; col < table.getColumnCount(); col++) {
+                rowData[col] = table.getValueAt(row, col);
+            }
+
+            // Perform actions with the row data (e.g., display in a dialog)
+            JOptionPane.showMessageDialog(table, 
+                "Row Values:\n" + 
+                "Module: " + rowData[0] + "\n" +
+                "RFC: " + rowData[1] + "\n" +
+                "Version Limit: " + rowData[2] + "\n" +
+                "Checkbox: " + rowData[3] + "\n" +
+                "Schedule DateTime: " + rowData[4],
+                "Row Details", 
+                JOptionPane.INFORMATION_MESSAGE);
+        }
+        clicked = false;
+        return label;
+    }
+
+
 package org.example;
 
 import javax.swing.*;
