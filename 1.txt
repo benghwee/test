@@ -1,7 +1,5 @@
 package org.example;
 
-import org.jooq.meta.derby.sys.Sys;
-
 import javax.swing.*;
 import javax.swing.table.DefaultTableModel;
 import javax.swing.table.TableCellRenderer;
@@ -24,8 +22,10 @@ public class SwingTableApp {
             JMenuItem exitItem = new JMenuItem("Exit");
             exitItem.addActionListener(e -> System.exit(0));
             JMenuItem listOrderItem = new JMenuItem("List Order");
-            listOrderItem.addActionListener(e -> {
 
+            JPanel tablePanel = new JPanel(new BorderLayout());
+
+            listOrderItem.addActionListener(e -> {
                 JPanel panel = new JPanel(new GridLayout(3, 2, 5, 5));
 
                 JLabel dateTimeLabel = new JLabel("Start Schedule DateTime:");
@@ -53,33 +53,28 @@ public class SwingTableApp {
                     String runtime = runtimeField.getText();
 
                     JOptionPane.showMessageDialog(frame, "Details Entered:\nStart Schedule DateTime: " + startDate + "\nRFC: " + rfc + "\nRuntime: " + runtime, "Info", JOptionPane.INFORMATION_MESSAGE);
-                    // Show loading dialog
-                    JDialog loadingDialog = createLoadingDialog(frame);
+
+                    // Show progress bar
+                    JDialog progressDialog = createProgressDialog(frame);
 
 
-                    // Simulate loading process
-                    SwingWorker<Void, Void> worker = new SwingWorker<>() {
+                    SwingWorker<Void, Void> postDialogWorker = new SwingWorker<>() {
                         @Override
                         protected Void doInBackground() throws Exception {
-                            Thread.sleep(2000); // Simulate a delay (e.g., fetching data)
-                           System.out.println("doing");
-                            //return null;
+                            Thread.sleep(1500); // Simulate processing delay
                             return null;
                         }
 
                         @Override
                         protected void done() {
-                            System.out.println("done");
-                            loadingDialog.dispose(); // Dismiss loading dialog
+                            progressDialog.dispose(); // Dismiss progress dialog
 
-
+                            setupTable(tablePanel);
                         }
                     };
-                    System.out.println(" worker.execute();");
-                    worker.execute();
-                    loadingDialog.setVisible(true);
+                    postDialogWorker.execute();
+                    progressDialog.setVisible(true);
                 }
-
             });
             fileMenu.add(listOrderItem);
             fileMenu.add(exitItem);
@@ -95,99 +90,68 @@ public class SwingTableApp {
             menuBar.add(editMenu);
             frame.setJMenuBar(menuBar);
 
-            // Table setup
-            String[] columnNames = {"Module", "RFC", "Version Limit", "Checkbox", "Schedule DateTime", "Action"};
-            DefaultTableModel tableModel = new DefaultTableModel(columnNames, 0) {
-                @Override
-                public boolean isCellEditable(int row, int column) {
-                    return true; // All cells are editable
-                }
-
-                @Override
-                public Class<?> getColumnClass(int columnIndex) {
-                    if (columnIndex == 3) {
-                        return Boolean.class; // Checkbox column
-                    }
-                    if (columnIndex == 4) {
-                        return Date.class; // Schedule DateTime column
-                    }
-                    return super.getColumnClass(columnIndex);
-                }
-            };
-            JTable table = new JTable(tableModel);
-
-            // Add a custom renderer and editor for the "Schedule DateTime" column
-            table.getColumn("Schedule DateTime").setCellRenderer(new DateTimeRenderer());
-            table.getColumn("Schedule DateTime").setCellEditor(new DateTimeEditor());
-
-            // Add a custom renderer and editor for the "Action" column
-            table.getColumn("Action").setCellRenderer(new ButtonRenderer());
-            table.getColumn("Action").setCellEditor(new ButtonEditor(new JCheckBox(), tableModel, table));
-
-            JScrollPane scrollPane = new JScrollPane(table);
-
-            // Add some sample data
-            tableModel.addRow(new Object[]{"Module1", "RFC123", "v1.0", false, new Date(), "Action"});
-            tableModel.addRow(new Object[]{"Module2", "RFC456", "v2.0", false, new Date(), "Action"});
-
-            // Console log area
-            JTextArea consoleLog = new JTextArea(5, 50);
-            consoleLog.setEditable(false);
-            JScrollPane consoleScrollPane = new JScrollPane(consoleLog);
-
-            // Layout setup
             frame.setLayout(new BorderLayout());
-            frame.add(scrollPane, BorderLayout.CENTER);
-            frame.add(consoleScrollPane, BorderLayout.SOUTH);
+            frame.add(tablePanel, BorderLayout.CENTER);
 
             frame.setVisible(true);
-
-            // Log action listener
-            tableModel.addTableModelListener(e -> {
-                int row = e.getFirstRow();
-                int column = e.getColumn();
-                if (column != -1) {
-                    Object data = tableModel.getValueAt(row, column);
-                    consoleLog.append("Cell updated at row " + row + ", column " + column + ": " + data + "\n");
-                }
-            });
-
-            // Menu actions for adding and removing rows
-            addRowItem.addActionListener(e -> {
-                int result = JOptionPane.showConfirmDialog(frame, "Are you sure you want to add a new row?", "Confirm Add", JOptionPane.YES_NO_OPTION);
-                if (result == JOptionPane.YES_OPTION) {
-                    tableModel.addRow(new Object[]{"", "", "", false, new Date(), "Action"});
-                }
-            });
-
-            removeRowItem.addActionListener(e -> {
-                int selectedRow = table.getSelectedRow();
-                if (selectedRow != -1) {
-                    int result = JOptionPane.showConfirmDialog(frame, "Are you sure you want to remove the selected row?", "Confirm Remove", JOptionPane.YES_NO_OPTION);
-                    if (result == JOptionPane.YES_OPTION) {
-                        tableModel.removeRow(selectedRow);
-                    }
-                } else {
-                    JOptionPane.showMessageDialog(frame, "Please select a row to remove.", "Error", JOptionPane.ERROR_MESSAGE);
-                }
-            });
         });
     }
 
-    private static JDialog createLoadingDialog(JFrame parentFrame) {
-        JDialog loadingDialog = new JDialog(parentFrame, "Loading", true);
-        loadingDialog.setSize(200, 100);
-        loadingDialog.setLayout(new BorderLayout());
+    private static void setupTable(JPanel tablePanel) {
+        String[] columnNames = {"Module", "RFC", "Version Limit", "Checkbox", "Schedule DateTime", "Action"};
+        DefaultTableModel tableModel = new DefaultTableModel(columnNames, 0) {
+            @Override
+            public boolean isCellEditable(int row, int column) {
+                return true; // All cells are editable
+            }
 
-        JLabel loadingLabel = new JLabel("Loading, please wait...", JLabel.CENTER);
+            @Override
+            public Class<?> getColumnClass(int columnIndex) {
+                if (columnIndex == 3) {
+                    return Boolean.class; // Checkbox column
+                }
+                if (columnIndex == 4) {
+                    return Date.class; // Schedule DateTime column
+                }
+                return super.getColumnClass(columnIndex);
+            }
+        };
+        JTable table = new JTable(tableModel);
+
+        // Add a custom renderer and editor for the "Schedule DateTime" column
+        table.getColumn("Schedule DateTime").setCellRenderer(new DateTimeRenderer());
+        table.getColumn("Schedule DateTime").setCellEditor(new DateTimeEditor());
+
+        // Add a custom renderer and editor for the "Action" column
+        table.getColumn("Action").setCellRenderer(new ButtonRenderer());
+        table.getColumn("Action").setCellEditor(new ButtonEditor(new JCheckBox(), tableModel, table));
+
+        JScrollPane scrollPane = new JScrollPane(table);
+
+        // Add some sample data
+        tableModel.addRow(new Object[]{"Module1", "RFC123", "v1.0", false, new Date(), "Action"});
+        tableModel.addRow(new Object[]{"Module2", "RFC456", "v2.0", false, new Date(), "Action"});
+
+        tablePanel.removeAll();
+        tablePanel.add(scrollPane, BorderLayout.CENTER);
+        tablePanel.revalidate();
+        tablePanel.repaint();
+    }
+
+    private static JDialog createProgressDialog(JFrame parentFrame) {
+        JDialog progressDialog = new JDialog(parentFrame, "Processing", true);
+        progressDialog.setSize(200, 100);
+        progressDialog.setLayout(new BorderLayout());
+
+        JLabel progressLabel = new JLabel("Processing, please wait...", JLabel.CENTER);
         JProgressBar progressBar = new JProgressBar();
         progressBar.setIndeterminate(true);
 
-        loadingDialog.add(loadingLabel, BorderLayout.CENTER);
-        loadingDialog.add(progressBar, BorderLayout.SOUTH);
-        loadingDialog.setLocationRelativeTo(parentFrame);
+        progressDialog.add(progressLabel, BorderLayout.CENTER);
+        progressDialog.add(progressBar, BorderLayout.SOUTH);
+        progressDialog.setLocationRelativeTo(parentFrame);
 
-        return loadingDialog;
+        return progressDialog;
     }
 
     // Custom renderer for the "Action" column
@@ -267,6 +231,7 @@ public class SwingTableApp {
             return this;
         }
     }
+
 
     // Custom editor for the "Schedule DateTime" column
     static class DateTimeEditor extends AbstractCellEditor implements TableCellEditor {
