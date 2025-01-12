@@ -23,14 +23,33 @@ public class SwingTableApp {
             exitItem.addActionListener(e -> System.exit(0));
             JMenuItem listOrderItem = new JMenuItem("List Order");
             listOrderItem.addActionListener(e -> {
-                JSpinner dateTimeSpinner = new JSpinner(new SpinnerDateModel());
-                JSpinner.DateEditor editor = new JSpinner.DateEditor(dateTimeSpinner, "yyyy-MM-dd HH:mm:ss");
-                dateTimeSpinner.setEditor(editor);
+                JPanel panel = new JPanel(new GridLayout(3, 2, 5, 5));
 
-                int result = JOptionPane.showConfirmDialog(frame, dateTimeSpinner, "Enter Start Schedule DateTime", JOptionPane.OK_CANCEL_OPTION);
+                JLabel dateTimeLabel = new JLabel("Start Schedule DateTime:");
+                JSpinner dateTimeSpinner = new JSpinner(new SpinnerDateModel());
+                JSpinner.DateEditor dateEditor = new JSpinner.DateEditor(dateTimeSpinner, "yyyy-MM-dd HH:mm:ss");
+                dateTimeSpinner.setEditor(dateEditor);
+
+                JLabel rfcLabel = new JLabel("RFC:");
+                JTextField rfcField = new JTextField();
+
+                JLabel runtimeLabel = new JLabel("Runtime:");
+                JTextField runtimeField = new JTextField();
+
+                panel.add(dateTimeLabel);
+                panel.add(dateTimeSpinner);
+                panel.add(rfcLabel);
+                panel.add(rfcField);
+                panel.add(runtimeLabel);
+                panel.add(runtimeField);
+
+                int result = JOptionPane.showConfirmDialog(frame, panel, "Enter Details", JOptionPane.OK_CANCEL_OPTION);
                 if (result == JOptionPane.OK_OPTION) {
                     Date startDate = (Date) dateTimeSpinner.getValue();
-                    JOptionPane.showMessageDialog(frame, "Start Schedule DateTime: " + startDate, "Info", JOptionPane.INFORMATION_MESSAGE);
+                    String rfc = rfcField.getText();
+                    String runtime = runtimeField.getText();
+
+                    JOptionPane.showMessageDialog(frame, "Details Entered:\nStart Schedule DateTime: " + startDate + "\nRFC: " + rfc + "\nRuntime: " + runtime, "Info", JOptionPane.INFORMATION_MESSAGE);
                 }
             });
             fileMenu.add(listOrderItem);
@@ -48,7 +67,7 @@ public class SwingTableApp {
             frame.setJMenuBar(menuBar);
 
             // Table setup
-            String[] columnNames = {"Module", "FC", "Version Limit", "Checkbox", "Schedule DateTime", "Action"};
+            String[] columnNames = {"Module", "RFC", "Version Limit", "Checkbox", "Schedule DateTime", "Action"};
             DefaultTableModel tableModel = new DefaultTableModel(columnNames, 0) {
                 @Override
                 public boolean isCellEditable(int row, int column) {
@@ -79,42 +98,8 @@ public class SwingTableApp {
             JScrollPane scrollPane = new JScrollPane(table);
 
             // Add some sample data
-            tableModel.addRow(new Object[]{"Module1", "123", "v1.0", false, new Date(), "Action"});
-            tableModel.addRow(new Object[]{"Module2", "456", "v2.0", false, new Date(), "Action"});
-
-            // Buttons setup
-            JButton addButton = new JButton("Add Row");
-            JButton removeButton = new JButton("Remove Row");
-
-            // Button actions
-            addButton.addActionListener(new ActionListener() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    int result = JOptionPane.showConfirmDialog(frame, "Are you sure you want to add a new row?", "Confirm Add", JOptionPane.YES_NO_OPTION);
-                    if (result == JOptionPane.YES_OPTION) {
-                        tableModel.addRow(new Object[]{"", "", "", false, new Date(), "Action"});
-                    }
-                }
-            });
-
-            removeButton.addActionListener(new ActionListener() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    int selectedRow = table.getSelectedRow();
-                    if (selectedRow != -1) {
-                        int result = JOptionPane.showConfirmDialog(frame, "Are you sure you want to remove the selected row?", "Confirm Remove", JOptionPane.YES_NO_OPTION);
-                        if (result == JOptionPane.YES_OPTION) {
-                            tableModel.removeRow(selectedRow);
-                        }
-                    } else {
-                        JOptionPane.showMessageDialog(frame, "Please select a row to remove.", "Error", JOptionPane.ERROR_MESSAGE);
-                    }
-                }
-            });
-
-            // Add actions to menu items
-            addRowItem.addActionListener(e -> addButton.doClick());
-            removeRowItem.addActionListener(e -> removeButton.doClick());
+            tableModel.addRow(new Object[]{"Module1", "RFC123", "v1.0", false, new Date(), "Action"});
+            tableModel.addRow(new Object[]{"Module2", "RFC456", "v2.0", false, new Date(), "Action"});
 
             // Console log area
             JTextArea consoleLog = new JTextArea(5, 50);
@@ -122,13 +107,8 @@ public class SwingTableApp {
             JScrollPane consoleScrollPane = new JScrollPane(consoleLog);
 
             // Layout setup
-            JPanel buttonPanel = new JPanel();
-            buttonPanel.add(addButton);
-            buttonPanel.add(removeButton);
-
             frame.setLayout(new BorderLayout());
             frame.add(scrollPane, BorderLayout.CENTER);
-            frame.add(buttonPanel, BorderLayout.NORTH);
             frame.add(consoleScrollPane, BorderLayout.SOUTH);
 
             frame.setVisible(true);
@@ -140,6 +120,26 @@ public class SwingTableApp {
                 if (column != -1) {
                     Object data = tableModel.getValueAt(row, column);
                     consoleLog.append("Cell updated at row " + row + ", column " + column + ": " + data + "\n");
+                }
+            });
+
+            // Menu actions for adding and removing rows
+            addRowItem.addActionListener(e -> {
+                int result = JOptionPane.showConfirmDialog(frame, "Are you sure you want to add a new row?", "Confirm Add", JOptionPane.YES_NO_OPTION);
+                if (result == JOptionPane.YES_OPTION) {
+                    tableModel.addRow(new Object[]{"", "", "", false, new Date(), "Action"});
+                }
+            });
+
+            removeRowItem.addActionListener(e -> {
+                int selectedRow = table.getSelectedRow();
+                if (selectedRow != -1) {
+                    int result = JOptionPane.showConfirmDialog(frame, "Are you sure you want to remove the selected row?", "Confirm Remove", JOptionPane.YES_NO_OPTION);
+                    if (result == JOptionPane.YES_OPTION) {
+                        tableModel.removeRow(selectedRow);
+                    }
+                } else {
+                    JOptionPane.showMessageDialog(frame, "Please select a row to remove.", "Error", JOptionPane.ERROR_MESSAGE);
                 }
             });
         });
@@ -211,16 +211,14 @@ public class SwingTableApp {
     }
 
     // Custom renderer for the "Schedule DateTime" column
-    static class DateTimeRenderer extends JSpinner implements TableCellRenderer {
-        public DateTimeRenderer() {
-            super(new SpinnerDateModel());
-            JSpinner.DateEditor editor = new JSpinner.DateEditor(this, "yyyy-MM-dd HH:mm:ss");
-            setEditor(editor);
-        }
-
+    static class DateTimeRenderer extends JLabel implements TableCellRenderer {
         @Override
         public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-            setValue(value);
+            if (value instanceof Date) {
+                setText(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format((Date) value));
+            } else {
+                setText("");
+            }
             return this;
         }
     }
@@ -231,19 +229,21 @@ public class SwingTableApp {
 
         public DateTimeEditor() {
             spinner = new JSpinner(new SpinnerDateModel());
-            JSpinner.DateEditor editor = new JSpinner.DateEditor(spinner, "yyyy-MM-dd HH:mm:ss");
-            spinner.setEditor(editor);
+            JSpinner.DateEditor dateEditor = new JSpinner.DateEditor(spinner, "yyyy-MM-dd HH:mm:ss");
+            spinner.setEditor(dateEditor);
+        }
+
+        @Override
+        public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
+            if (value instanceof Date) {
+                spinner.setValue(value);
+            }
+            return spinner;
         }
 
         @Override
         public Object getCellEditorValue() {
             return spinner.getValue();
-        }
-
-        @Override
-        public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
-            spinner.setValue(value);
-            return spinner;
         }
     }
 }
