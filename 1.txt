@@ -1,3 +1,8 @@
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.List;
+
 public class InlineSQLBuilder {
 
     public static String buildInlineSQL(String baseQuery, List<Object> args) {
@@ -13,7 +18,9 @@ public class InlineSQLBuilder {
             if (param instanceof String) {
                 paramValue = "'" + param.toString().replace("'", "''") + "'"; // Escape single quotes in strings
             } else if (param instanceof LocalDate) {
-                paramValue = "'" + param.toString() + "'"; // Format LocalDate as a string (ISO-8601)
+                paramValue = "'" + ((LocalDate) param).toString() + "'"; // Format LocalDate as YYYY-MM-DD
+            } else if (param instanceof LocalDateTime) {
+                paramValue = "'" + ((LocalDateTime) param).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + "'"; // Format LocalDateTime
             } else {
                 paramValue = param.toString(); // Default conversion for other types
             }
@@ -26,7 +33,7 @@ public class InlineSQLBuilder {
 
     public static void main(String[] args) {
         String queryTemplate = "SELECT * FROM table WHERE arg1 = ? AND time = ?";
-        List<Object> arguments = List.of("testValue", LocalDate.of(2025, 1, 21));
+        List<Object> arguments = List.of("testValue", LocalDateTime.of(2025, 1, 21, 15, 30, 45));
 
         String inlineSQL = buildInlineSQL(queryTemplate, arguments);
         System.out.println("Generated SQL: " + inlineSQL);
