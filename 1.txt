@@ -15,25 +15,41 @@ public class InlineSQLBuilder {
 
             // Convert the parameter to a SQL-compatible string
             String paramValue;
-            if (param instanceof String) {
+            if (param == null) {
+                paramValue = "NULL"; // Use SQL NULL for null values
+            } else if (param instanceof String) {
                 paramValue = "'" + param.toString().replace("'", "''") + "'"; // Escape single quotes in strings
             } else if (param instanceof LocalDate) {
-                paramValue = "'" + ((LocalDate) param).toString() + "'"; // Format LocalDate as YYYY-MM-DD
+                paramValue = "DATE '" + ((LocalDate) param).toString() + "'"; // Format LocalDate as DATE 'YYYY-MM-DD'
             } else if (param instanceof LocalDateTime) {
-                paramValue = "'" + ((LocalDateTime) param).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + "'"; // Format LocalDateTime
+                paramValue = "TIMESTAMP '" + ((LocalDateTime) param).format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")) + "'"; // Format LocalDateTime
             } else {
                 paramValue = param.toString(); // Default conversion for other types
             }
 
-            queryBuilder.replace(questionMarkIndex, questionMarkIndex + 1, paramValue);
+            // Handle subtraction expression (? - N)
+            if (queryBuilder.length() > questionMarkIndex + 2
+                    && queryBuilder.substring(questionMarkIndex + 1, questionMarkIndex + 2).equals("-")) {
+                // Identify the subtraction expression
+                int subtractionStart = questionMarkIndex + 2;
+                int subtractionEnd = subtractionStart;
+                while (subtractionEnd < queryBuilder.length() && Character.isDigit(queryBuilder.charAt(subtractionEnd))) {
+                    subtractionEnd++;
+                }
+                String daysToSubtract = queryBuilder.substring(subtractionStart, subtractionEnd).trim();
+                queryBuilder.replace(questionMarkIndex, subtractionEnd,
+                        paramValue + " - INTERVAL '" + daysToSubtract + " days'");
+            } else {
+                queryBuilder.replace(questionMarkIndex, questionMarkIndex + 1, paramValue);
+            }
         }
 
         return queryBuilder.toString();
     }
 
     public static void main(String[] args) {
-        String queryTemplate = "SELECT * FROM table WHERE arg1 = ? AND time = ?";
-        List<Object> arguments = List.of("testValue", LocalDateTime.of(2025, 1, 21, 15, 30, 45));
+        String queryTemplate = "SELECT * FROM table WHERE date_column = ? - 180";
+        List<Object> arguments = List.of(LocalDate.of(2025, 1, 21));
 
         String inlineSQL = buildInlineSQL(queryTemplate, arguments);
         System.out.println("Generated SQL: " + inlineSQL);
