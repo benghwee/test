@@ -1,295 +1,34 @@
-  @Override
-    public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
-        label = (value == null) ? "Action" : value.toString();
-        button.setText(label);
-        clicked = true;
-        return button;
-    }
+public class InlineSQLBuilder {
 
-    @Override
-    public Object getCellEditorValue() {
-        if (clicked) {
-            // Get the selected row index
-            int row = table.getSelectedRow();
+    public static String buildInlineSQL(String baseQuery, List<Object> args) {
+        StringBuilder queryBuilder = new StringBuilder(baseQuery);
+        int paramIndex = 0;
 
-            // Retrieve all values from the row
-            Object[] rowData = new Object[table.getColumnCount()];
-            for (int col = 0; col < table.getColumnCount(); col++) {
-                rowData[col] = table.getValueAt(row, col);
-            }
+        while (queryBuilder.indexOf("?") != -1 && paramIndex < args.size()) {
+            int questionMarkIndex = queryBuilder.indexOf("?");
+            Object param = args.get(paramIndex++);
 
-            // Perform actions with the row data (e.g., display in a dialog)
-            JOptionPane.showMessageDialog(table, 
-                "Row Values:\n" + 
-                "Module: " + rowData[0] + "\n" +
-                "RFC: " + rowData[1] + "\n" +
-                "Version Limit: " + rowData[2] + "\n" +
-                "Checkbox: " + rowData[3] + "\n" +
-                "Schedule DateTime: " + rowData[4],
-                "Row Details", 
-                JOptionPane.INFORMATION_MESSAGE);
-        }
-        clicked = false;
-        return label;
-    }
-
-
-package org.example;
-
-import javax.swing.*;
-import javax.swing.table.DefaultTableModel;
-import javax.swing.table.TableCellRenderer;
-import javax.swing.table.TableCellEditor;
-import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
-import java.util.Date;
-
-public class SwingTableApp {
-    public static void main(String[] args) {
-        SwingUtilities.invokeLater(() -> {
-            JFrame frame = new JFrame("Swing Table App");
-            frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-            frame.setSize(700, 500);
-
-            // Menu setup
-            JMenuBar menuBar = new JMenuBar();
-            JMenu fileMenu = new JMenu("File");
-            JMenuItem exitItem = new JMenuItem("Exit");
-            exitItem.addActionListener(e -> System.exit(0));
-            JMenuItem listOrderItem = new JMenuItem("List Order");
-
-            JPanel tablePanel = new JPanel(new BorderLayout());
-
-            listOrderItem.addActionListener(e -> {
-                JPanel panel = new JPanel(new GridLayout(3, 2, 5, 5));
-
-                JLabel dateTimeLabel = new JLabel("Start Schedule DateTime:");
-                JSpinner dateTimeSpinner = new JSpinner(new SpinnerDateModel());
-                JSpinner.DateEditor dateEditor = new JSpinner.DateEditor(dateTimeSpinner, "yyyy-MM-dd HH:mm:ss");
-                dateTimeSpinner.setEditor(dateEditor);
-
-                JLabel rfcLabel = new JLabel("RFC:");
-                JTextField rfcField = new JTextField();
-
-                JLabel runtimeLabel = new JLabel("Runtime:");
-                JTextField runtimeField = new JTextField();
-
-                panel.add(dateTimeLabel);
-                panel.add(dateTimeSpinner);
-                panel.add(rfcLabel);
-                panel.add(rfcField);
-                panel.add(runtimeLabel);
-                panel.add(runtimeField);
-
-                int result = JOptionPane.showConfirmDialog(frame, panel, "Enter Details", JOptionPane.OK_CANCEL_OPTION);
-                if (result == JOptionPane.OK_OPTION) {
-                    Date startDate = (Date) dateTimeSpinner.getValue();
-                    String rfc = rfcField.getText();
-                    String runtime = runtimeField.getText();
-
-                    JOptionPane.showMessageDialog(frame, "Details Entered:\nStart Schedule DateTime: " + startDate + "\nRFC: " + rfc + "\nRuntime: " + runtime, "Info", JOptionPane.INFORMATION_MESSAGE);
-
-                    // Show progress bar
-                    JDialog progressDialog = createProgressDialog(frame);
-
-
-                    SwingWorker<Void, Void> postDialogWorker = new SwingWorker<>() {
-                        @Override
-                        protected Void doInBackground() throws Exception {
-                            Thread.sleep(1500); // Simulate processing delay
-                            return null;
-                        }
-
-                        @Override
-                        protected void done() {
-                            progressDialog.dispose(); // Dismiss progress dialog
-
-                            setupTable(tablePanel);
-                        }
-                    };
-                    postDialogWorker.execute();
-                    progressDialog.setVisible(true);
-                }
-            });
-            fileMenu.add(listOrderItem);
-            fileMenu.add(exitItem);
-
-            JMenu editMenu = new JMenu("Edit");
-            JMenuItem addRowItem = new JMenuItem("Add Row");
-            JMenuItem removeRowItem = new JMenuItem("Remove Row");
-
-            editMenu.add(addRowItem);
-            editMenu.add(removeRowItem);
-
-            menuBar.add(fileMenu);
-            menuBar.add(editMenu);
-            frame.setJMenuBar(menuBar);
-
-            frame.setLayout(new BorderLayout());
-            frame.add(tablePanel, BorderLayout.CENTER);
-
-            frame.setVisible(true);
-        });
-    }
-
-    private static void setupTable(JPanel tablePanel) {
-        String[] columnNames = {"Module", "RFC", "Version Limit", "Checkbox", "Schedule DateTime", "Action"};
-        DefaultTableModel tableModel = new DefaultTableModel(columnNames, 0) {
-            @Override
-            public boolean isCellEditable(int row, int column) {
-                return true; // All cells are editable
-            }
-
-            @Override
-            public Class<?> getColumnClass(int columnIndex) {
-                if (columnIndex == 3) {
-                    return Boolean.class; // Checkbox column
-                }
-                if (columnIndex == 4) {
-                    return Date.class; // Schedule DateTime column
-                }
-                return super.getColumnClass(columnIndex);
-            }
-        };
-        JTable table = new JTable(tableModel);
-
-        // Add a custom renderer and editor for the "Schedule DateTime" column
-        table.getColumn("Schedule DateTime").setCellRenderer(new DateTimeRenderer());
-        table.getColumn("Schedule DateTime").setCellEditor(new DateTimeEditor());
-
-        // Add a custom renderer and editor for the "Action" column
-        table.getColumn("Action").setCellRenderer(new ButtonRenderer());
-        table.getColumn("Action").setCellEditor(new ButtonEditor(new JCheckBox(), tableModel, table));
-
-        JScrollPane scrollPane = new JScrollPane(table);
-
-        // Add some sample data
-        tableModel.addRow(new Object[]{"Module1", "RFC123", "v1.0", false, new Date(), "Action"});
-        tableModel.addRow(new Object[]{"Module2", "RFC456", "v2.0", false, new Date(), "Action"});
-
-        tablePanel.removeAll();
-        tablePanel.add(scrollPane, BorderLayout.CENTER);
-        tablePanel.revalidate();
-        tablePanel.repaint();
-    }
-
-    private static JDialog createProgressDialog(JFrame parentFrame) {
-        JDialog progressDialog = new JDialog(parentFrame, "Processing", true);
-        progressDialog.setSize(200, 100);
-        progressDialog.setLayout(new BorderLayout());
-
-        JLabel progressLabel = new JLabel("Processing, please wait...", JLabel.CENTER);
-        JProgressBar progressBar = new JProgressBar();
-        progressBar.setIndeterminate(true);
-
-        progressDialog.add(progressLabel, BorderLayout.CENTER);
-        progressDialog.add(progressBar, BorderLayout.SOUTH);
-        progressDialog.setLocationRelativeTo(parentFrame);
-
-        return progressDialog;
-    }
-
-    // Custom renderer for the "Action" column
-    static class ButtonRenderer extends JButton implements TableCellRenderer {
-        public ButtonRenderer() {
-            setOpaque(true);
-        }
-
-        @Override
-        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-            setText((value == null) ? "Action" : value.toString());
-            return this;
-        }
-    }
-
-    // Custom editor for the "Action" column
-    static class ButtonEditor extends DefaultCellEditor {
-        private JButton button;
-        private String label;
-        private boolean clicked;
-        private DefaultTableModel tableModel;
-        private JTable table;
-
-        public ButtonEditor(JCheckBox checkBox, DefaultTableModel tableModel, JTable table) {
-            super(checkBox);
-            this.tableModel = tableModel;
-            this.table = table;
-            button = new JButton();
-            button.setOpaque(true);
-            button.addActionListener(new ActionListener() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    fireEditingStopped();
-                }
-            });
-        }
-
-        @Override
-        public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
-            label = (value == null) ? "Action" : value.toString();
-            button.setText(label);
-            clicked = true;
-            return button;
-        }
-
-        @Override
-        public Object getCellEditorValue() {
-            if (clicked) {
-                int row = table.getSelectedRow();
-                tableModel.setValueAt(true, row, 3); // Set checkbox to true
-            }
-            clicked = false;
-            return label;
-        }
-
-        @Override
-        public boolean stopCellEditing() {
-            clicked = false;
-            return super.stopCellEditing();
-        }
-
-        @Override
-        protected void fireEditingStopped() {
-            super.fireEditingStopped();
-        }
-    }
-
-    // Custom renderer for the "Schedule DateTime" column
-    static class DateTimeRenderer extends JLabel implements TableCellRenderer {
-        @Override
-        public Component getTableCellRendererComponent(JTable table, Object value, boolean isSelected, boolean hasFocus, int row, int column) {
-            if (value instanceof Date) {
-                setText(new java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format((Date) value));
+            // Convert the parameter to a SQL-compatible string
+            String paramValue;
+            if (param instanceof String) {
+                paramValue = "'" + param.toString().replace("'", "''") + "'"; // Escape single quotes in strings
+            } else if (param instanceof LocalDate) {
+                paramValue = "'" + param.toString() + "'"; // Format LocalDate as a string (ISO-8601)
             } else {
-                setText("");
+                paramValue = param.toString(); // Default conversion for other types
             }
-            return this;
+
+            queryBuilder.replace(questionMarkIndex, questionMarkIndex + 1, paramValue);
         }
+
+        return queryBuilder.toString();
     }
 
+    public static void main(String[] args) {
+        String queryTemplate = "SELECT * FROM table WHERE arg1 = ? AND time = ?";
+        List<Object> arguments = List.of("testValue", LocalDate.of(2025, 1, 21));
 
-    // Custom editor for the "Schedule DateTime" column
-    static class DateTimeEditor extends AbstractCellEditor implements TableCellEditor {
-        private JSpinner spinner;
-
-        public DateTimeEditor() {
-            spinner = new JSpinner(new SpinnerDateModel());
-            JSpinner.DateEditor dateEditor = new JSpinner.DateEditor(spinner, "yyyy-MM-dd HH:mm:ss");
-            spinner.setEditor(dateEditor);
-        }
-
-        @Override
-        public Component getTableCellEditorComponent(JTable table, Object value, boolean isSelected, int row, int column) {
-            if (value instanceof Date) {
-                spinner.setValue(value);
-            }
-            return spinner;
-        }
-
-        @Override
-        public Object getCellEditorValue() {
-            return spinner.getValue();
-        }
+        String inlineSQL = buildInlineSQL(queryTemplate, arguments);
+        System.out.println("Generated SQL: " + inlineSQL);
     }
 }
