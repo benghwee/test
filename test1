@@ -1,0 +1,34 @@
+@Entity
+public class Person {
+
+    @Id
+    private Long id;
+    
+    private String name;
+
+    @PreUpdate
+    public void preUpdate() {
+        // Compare the current value with the new value and decide whether to update
+        if (this.name.equals("John")) {
+            // If the name is already "John", we might avoid updating
+            // Add logic here to decide if the update is really needed
+        }
+    }
+
+    // Getters and setters
+}
+
+
+index=your_index sourcetype=your_sourcetype
+( keyword1 OR keyword2 OR keyword3 )
+| bucket _time span=1m
+| stats count by _time
+| where _time >= relative_time(now(), "-20m")
+| eval keyword_occurred = if(count > 0, "true", "false")
+| stats values(keyword_occurred) as keyword_occurred
+| where mvcount(keyword_occurred) == 1 AND "false" not in keyword_occurred
+
+
+index=your_index sourcetype=postgresql_logs
+"could not connect to server" OR "connection failed"
+| table _time, _raw
