@@ -1,0 +1,157 @@
+package org.example;
+
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.*;
+import java.io.BufferedReader;
+import java.io.InputStreamReader;
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.Date;
+import java.util.regex.Pattern;
+
+public class OrderFormGUI {
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(OrderFormGUI::createAndShowGUI);
+    }
+
+    private static void createAndShowGUI() {
+        JFrame frame = new JFrame("Order Form");
+        frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        frame.setSize(500, 400);
+
+        JPanel panel = new JPanel(new GridBagLayout());
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.insets = new Insets(5, 5, 5, 5);
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+
+        JLabel lblOrderDate = new JLabel("Order Date and Time:");
+        JSpinner dateSpinner = new JSpinner(new SpinnerDateModel());
+        JSpinner.DateEditor dateEditor = new JSpinner.DateEditor(dateSpinner, "yyyy-MM-dd HH:mm:ss");
+        dateSpinner.setEditor(dateEditor);
+
+        JLabel lblRFC = new JLabel("RFC:");
+        JTextField txtRFC = new JTextField(20);
+        JLabel lblEmail = new JLabel("Email:");
+        JTextField txtEmail = new JTextField(20);
+        JLabel lblRuntime = new JLabel("Runtime:");
+        JTextField txtRuntime = new JTextField(20);
+        JCheckBox chkAutoSubmit = new JCheckBox("Auto-submit");
+        JButton btnSubmit = new JButton("Submit");
+
+        JTextArea console = new JTextArea(10, 40);
+        console.setEditable(true);
+        console.setLineWrap(true);
+        console.setWrapStyleWord(true);
+        JScrollPane scrollPane = new JScrollPane(console);
+
+        JPopupMenu popupMenu = new JPopupMenu();
+        JMenuItem copyItem = new JMenuItem("Copy");
+        copyItem.addActionListener(e -> console.copy());
+        popupMenu.add(copyItem);
+
+        console.addMouseListener(new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    popupMenu.show(e.getComponent(), e.getX(), e.getY());
+                }
+            }
+
+            @Override
+            public void mouseReleased(MouseEvent e) {
+                if (e.isPopupTrigger()) {
+                    popupMenu.show(e.getComponent(), e.getX(), e.getY());
+                }
+            }
+        });
+
+        gbc.gridx = 0;
+        gbc.gridy = 0;
+        panel.add(lblOrderDate, gbc);
+        gbc.gridx = 1;
+        panel.add(dateSpinner, gbc);
+
+        gbc.gridx = 0;
+        gbc.gridy = 1;
+        panel.add(lblRFC, gbc);
+        gbc.gridx = 1;
+        panel.add(txtRFC, gbc);
+
+        gbc.gridx = 0;
+        gbc.gridy = 2;
+        panel.add(lblEmail, gbc);
+        gbc.gridx = 1;
+        panel.add(txtEmail, gbc);
+
+        gbc.gridx = 0;
+        gbc.gridy = 3;
+        panel.add(lblRuntime, gbc);
+        gbc.gridx = 1;
+        panel.add(txtRuntime, gbc);
+
+        gbc.gridx = 0;
+        gbc.gridy = 4;
+        panel.add(chkAutoSubmit, gbc);
+
+        gbc.gridx = 1;
+        gbc.gridy = 5;
+        panel.add(btnSubmit, gbc);
+
+        btnSubmit.addActionListener(e -> {
+            SimpleDateFormat sdf = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss");
+            String orderDate = sdf.format((Date) dateSpinner.getValue());
+            String rfc = txtRFC.getText().trim();
+            String email = txtEmail.getText().trim();
+            String runtime = txtRuntime.getText().trim();
+            boolean autoSubmit = chkAutoSubmit.isSelected();
+
+            if (rfc.isEmpty()) {
+                JOptionPane.showMessageDialog(frame, "RFC cannot be empty.", "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            if (!isValidEmail(email)) {
+                JOptionPane.showMessageDialog(frame, "Invalid email format.", "Error", JOptionPane.ERROR_MESSAGE);
+                return;
+            }
+
+            console.append("Order Submitted:\n");
+            console.append("Date: " + orderDate + "\n");
+            console.append("RFC: " + rfc + "\n");
+            console.append("Email: " + email + "\n");
+            console.append("Runtime: " + runtime + "\n");
+            console.append("Auto-submit: " + autoSubmit + "\n");
+            console.append("----------------------\n");
+
+            runProcess(console);
+        });
+
+        frame.setLayout(new BorderLayout());
+        frame.add(panel, BorderLayout.NORTH);
+        frame.add(scrollPane, BorderLayout.CENTER);
+
+        frame.setVisible(true);
+    }
+
+    private static boolean isValidEmail(String email) {
+        String emailRegex = "^[A-Za-z0-9+_.-]+@[A-Za-z0-9.-]+$";
+        return Pattern.matches(emailRegex, email);
+    }
+
+    private static void runProcess(JTextArea console) {
+        new Thread(() -> {
+            try {
+                Process process = new ProcessBuilder("ping", "google.com").start();
+                BufferedReader reader = new BufferedReader(new InputStreamReader(process.getInputStream()));
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    final String output = line + "\n";
+                    SwingUtilities.invokeLater(() -> console.append(output));
+                }
+            } catch (Exception ex) {
+                SwingUtilities.invokeLater(() -> console.append("Error running process: " + ex.getMessage() + "\n"));
+            }
+        }).start();
+    }
+}
