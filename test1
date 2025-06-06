@@ -5,36 +5,35 @@ import java.nio.channels.FileLock;
 
 public class SharedMemoryQueue {
 
-    private static final int QUEUE_CAPACITY = 1024;
     private static final int INT_SIZE = 4;
+    private static final int QUEUE_CAPACITY = 1024;
+
     private static final int HEAD_OFFSET = 0;
     private static final int TAIL_OFFSET = HEAD_OFFSET + INT_SIZE;
     private static final int DATA_OFFSET = TAIL_OFFSET + INT_SIZE;
-    private static final int BUFFER_SIZE = DATA_OFFSET + QUEUE_CAPACITY * INT_SIZE;
-    private static final String SHARED_FILE_PATH = "shared_queue.dat";
+    private static final int TOTAL_SIZE = DATA_OFFSET + QUEUE_CAPACITY * INT_SIZE;
 
     private final FileChannel channel;
     private final MappedByteBuffer buffer;
 
-    public SharedMemoryQueue() throws Exception {
-        RandomAccessFile file = new RandomAccessFile(SHARED_FILE_PATH, "rw");
-        file.setLength(BUFFER_SIZE);
+    public SharedMemoryQueue(String filePath) throws Exception {
+        RandomAccessFile file = new RandomAccessFile(filePath, "rw");
+        file.setLength(TOTAL_SIZE);
         this.channel = file.getChannel();
-        this.buffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, BUFFER_SIZE);
+        this.buffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, TOTAL_SIZE);
     }
 
     public void enqueue(int value) throws Exception {
-        try (FileLock lock = channel.lock()) { // Lock the entire file
+        try (FileLock lock = channel.lock()) {
             int tail = buffer.getInt(TAIL_OFFSET);
-            int head = buffer.getInt(HEAD_OFFSET);
-
-            if ((tail + 1) % QUEUE_CAPACITY == head) {
+            if (tail >= QUEUE_CAPACITY) {
                 throw new IllegalStateException("Queue is full");
             }
 
-            int index = DATA_OFFSET + (tail % QUEUE_CAPACITY) * INT_SIZE;
+            int index = DATA_OFFSET + tail * INT_SIZE;
             buffer.putInt(index, value);
-            buffer.putInt(TAIL_OFFSET, (tail + 1) % QUEUE_CAPACITY);
+            buffer.putInt(TAIL_OFFSET, tail + 1);
+            buffer.force();
         }
     }
 
@@ -43,13 +42,14 @@ public class SharedMemoryQueue {
             int head = buffer.getInt(HEAD_OFFSET);
             int tail = buffer.getInt(TAIL_OFFSET);
 
-            if (head == tail) {
+            if (head >= tail) {
                 throw new IllegalStateException("Queue is empty");
             }
 
-            int index = DATA_OFFSET + (head % QUEUE_CAPACITY) * INT_SIZE;
+            int index = DATA_OFFSET + head * INT_SIZE;
             int value = buffer.getInt(index);
-            buffer.putInt(HEAD_OFFSET, (head + 1) % QUEUE_CAPACITY);
+            buffer.putInt(HEAD_OFFSET, head + 1);
+            buffer.force();
             return value;
         }
     }
