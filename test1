@@ -1,56 +1,51 @@
-import java.io.RandomAccessFile;
-import java.nio.MappedByteBuffer;
-import java.nio.channels.FileChannel;
-import java.nio.channels.FileLock;
+package org.example;
+import java.io.*;
+import java.nio.channels.*;
+public class LockManager {
+    private FileChannel channel;
+    private FileLock lock;
+    private final File lockFile;
 
-public class SharedMemoryQueue {
-
-    private static final int INT_SIZE = 4;
-    private static final int QUEUE_CAPACITY = 1024;
-
-    private static final int HEAD_OFFSET = 0;
-    private static final int TAIL_OFFSET = HEAD_OFFSET + INT_SIZE;
-    private static final int DATA_OFFSET = TAIL_OFFSET + INT_SIZE;
-    private static final int TOTAL_SIZE = DATA_OFFSET + QUEUE_CAPACITY * INT_SIZE;
-
-    private final FileChannel channel;
-    private final MappedByteBuffer buffer;
-
-    public SharedMemoryQueue(String filePath) throws Exception {
-        RandomAccessFile file = new RandomAccessFile(filePath, "rw");
-        file.setLength(TOTAL_SIZE);
-        this.channel = file.getChannel();
-        this.buffer = channel.map(FileChannel.MapMode.READ_WRITE, 0, TOTAL_SIZE);
+    public LockManager(String filePath) {
+        this.lockFile = new File(filePath);
     }
 
-    public void enqueue(int value) throws Exception {
-        try (FileLock lock = channel.lock()) {
-            int tail = buffer.getInt(TAIL_OFFSET);
-            if (tail >= QUEUE_CAPACITY) {
-                throw new IllegalStateException("Queue is full");
-            }
-
-            int index = DATA_OFFSET + tail * INT_SIZE;
-            buffer.putInt(index, value);
-            buffer.putInt(TAIL_OFFSET, tail + 1);
-            buffer.force();
+    // Acquire the lock (blocking)
+    public void acquireLock() throws IOException {
+        if (!lockFile.exists()) {
+            lockFile.createNewFile();
         }
+        RandomAccessFile raf = new RandomAccessFile(lockFile, "rw");
+        this.channel = raf.getChannel();
+        System.out.println("Trying to acquire lock...");
+        this.lock = channel.lock(); // blocks until acquired
+        System.out.println("Lock acquired.");
     }
 
-    public int dequeue() throws Exception {
-        try (FileLock lock = channel.lock()) {
-            int head = buffer.getInt(HEAD_OFFSET);
-            int tail = buffer.getInt(TAIL_OFFSET);
+    // Release the lock
+    public void releaseLock() throws IOException {
+        if (lock != null && lock.isValid()) {
+            System.out.println("Releasing lock...");
+            lock.release();
+        }
+        if (channel != null && channel.isOpen()) {
+            channel.close(); // This also releases the lock if not already
+        }
+        System.out.println("Lock released.");
+    }
 
-            if (head >= tail) {
-                throw new IllegalStateException("Queue is empty");
-            }
+    public static void main(String[] args) {
+        LockManager lockManager = new LockManager("shared.lock");
+        try {
+            lockManager.acquireLock();
 
-            int index = DATA_OFFSET + head * INT_SIZE;
-            int value = buffer.getInt(index);
-            buffer.putInt(HEAD_OFFSET, head + 1);
-            buffer.force();
-            return value;
+            // Simulate some exclusive work
+            System.out.println("Doing critical work...");
+            Thread.sleep(10000);
+
+            lockManager.releaseLock();
+        } catch (Exception e) {
+            e.printStackTrace();
         }
     }
 }
