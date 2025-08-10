@@ -1,51 +1,74 @@
-package org.example;
-import java.io.*;
-import java.nio.channels.*;
-public class LockManager {
-    private FileChannel channel;
-    private FileLock lock;
-    private final File lockFile;
+import org.apache.kafka.clients.admin.AdminClient;
+import org.apache.kafka.clients.admin.ListOffsetsResult.ListOffsetsResultInfo;
+import org.apache.kafka.clients.admin.OffsetSpec;
+import org.apache.kafka.clients.admin.TopicDescription;
+import org.apache.kafka.common.TopicPartition;
 
-    public LockManager(String filePath) {
-        this.lockFile = new File(filePath);
+import java.util.*;
+import java.util.concurrent.ExecutionException;
+
+public class KafkaAdminMessageChecker {
+
+    private final AdminClient adminClient;
+
+    public KafkaAdminMessageChecker(Properties adminProps) {
+        this.adminClient = AdminClient.create(adminProps);
     }
 
-    // Acquire the lock (blocking)
-    public void acquireLock() throws IOException {
-        if (!lockFile.exists()) {
-            lockFile.createNewFile();
+    public long getMessagesAvailable(String topic, String consumerGroupId) throws ExecutionException, InterruptedException {
+        // 1. Get partitions of the topic
+        TopicDescription topicDescription = adminClient.describeTopics(Collections.singleton(topic))
+                .all().get().get(topic);
+
+        Set<TopicPartition> partitions = new HashSet<>();
+        topicDescription.partitions().forEach(p -> partitions.add(new TopicPartition(topic, p.partition())));
+
+        // 2. Get committed offsets for the consumer group
+        Map<TopicPartition, Long> committedOffsets = new HashMap<>();
+        Map<TopicPartition, org.apache.kafka.clients.consumer.OffsetAndMetadata> committed =
+                adminClient.listConsumerGroupOffsets(consumerGroupId).partitionsToOffsetAndMetadata().get();
+
+        committed.forEach((tp, offsetAndMetadata) -> committedOffsets.put(tp, offsetAndMetadata != null ? offsetAndMetadata.offset() : -1L));
+
+        // 3. Get latest offsets per partition
+        Map<TopicPartition, OffsetSpec> request = new HashMap<>();
+        partitions.forEach(tp -> request.put(tp, OffsetSpec.latest()));
+
+        Map<TopicPartition, ListOffsetsResultInfo> endOffsets =
+                adminClient.listOffsets(request).all().get();
+
+        // 4. Calculate available messages
+        long totalAvailable = 0L;
+        for (TopicPartition tp : partitions) {
+            long committedOffset = committedOffsets.getOrDefault(tp, -1L);
+            long endOffset = endOffsets.get(tp).offset();
+
+            if (committedOffset < 0) {
+                committedOffset = 0;
+            }
+
+            long diff = endOffset - committedOffset;
+            if (diff > 0) {
+                totalAvailable += diff;
+            }
         }
-        RandomAccessFile raf = new RandomAccessFile(lockFile, "rw");
-        this.channel = raf.getChannel();
-        System.out.println("Trying to acquire lock...");
-        this.lock = channel.lock(); // blocks until acquired
-        System.out.println("Lock acquired.");
+
+        return totalAvailable;
     }
 
-    // Release the lock
-    public void releaseLock() throws IOException {
-        if (lock != null && lock.isValid()) {
-            System.out.println("Releasing lock...");
-            lock.release();
-        }
-        if (channel != null && channel.isOpen()) {
-            channel.close(); // This also releases the lock if not already
-        }
-        System.out.println("Lock released.");
+    public void close() {
+        adminClient.close();
     }
 
-    public static void main(String[] args) {
-        LockManager lockManager = new LockManager("shared.lock");
-        try {
-            lockManager.acquireLock();
+    public static void main(String[] args) throws Exception {
+        Properties adminProps = new Properties();
+        adminProps.put("bootstrap.servers", "localhost:9092");
 
-            // Simulate some exclusive work
-            System.out.println("Doing critical work...");
-            Thread.sleep(10000);
+        KafkaAdminMessageChecker checker = new KafkaAdminMessageChecker(adminProps);
 
-            lockManager.releaseLock();
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        long messagesAvailable = checker.getMessagesAvailable("my-topic", "my-group");
+        System.out.println("Messages available to consume: " + messagesAvailable);
+
+        checker.close();
     }
 }
