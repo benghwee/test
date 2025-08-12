@@ -1,63 +1,26 @@
-import org.apache.kafka.clients.admin.*;
-import org.apache.kafka.common.TopicPartition;
+@Configuration
+public class MetricsConfig {
+    private static final Logger logger = LoggerFactory.getLogger("metrics");
 
-import java.util.*;
-import java.util.concurrent.ExecutionException;
-import java.util.stream.Collectors;
-
-public class PhantomLagAwareAdminClientLagChecker {
-
-    public static void main(String[] args) throws ExecutionException, InterruptedException {
-        String bootstrapServers = "localhost:9092";
-        String consumerGroup = "my-consumer-group";
-
-        Properties props = new Properties();
-        props.put(AdminClientConfig.BOOTSTRAP_SERVERS_CONFIG, bootstrapServers);
-
-        try (AdminClient adminClient = AdminClient.create(props)) {
-            // 1. Get partitions from committed offsets of the group
-            Map<TopicPartition, OffsetAndMetadata> committedOffsets =
-                    adminClient.listConsumerGroupOffsets(consumerGroup)
-                               .partitionsToOffsetAndMetadata()
-                               .get();
-
-            Set<TopicPartition> partitions = committedOffsets.keySet();
-
-            // 2. Get earliest offsets (log start offsets)
-            Map<TopicPartition, ListOffsetsResult.ListOffsetsResultInfo> startOffsets =
-                    adminClient.listOffsets(
-                            partitions.stream()
-                                      .collect(Collectors.toMap(tp -> tp, tp -> OffsetSpec.earliest()))
-                    ).all().get();
-
-            // 3. Get latest offsets (log end offsets)
-            Map<TopicPartition, ListOffsetsResult.ListOffsetsResultInfo> endOffsets =
-                    adminClient.listOffsets(
-                            partitions.stream()
-                                      .collect(Collectors.toMap(tp -> tp, tp -> OffsetSpec.latest()))
-                    ).all().get();
-
-            // 4. Calculate lag and detect phantom lag
-            for (TopicPartition tp : partitions) {
-                long committed = committedOffsets.getOrDefault(tp, new OffsetAndMetadata(0L)).offset();
-                long start = startOffsets.get(tp).offset();
-                long end = endOffsets.get(tp).offset();
-
-                long lag;
-                boolean phantomLag = false;
-
-                if (committed < start) {
-                    phantomLag = true;
-                    lag = end - start; // Adjust lag to exclude deleted messages
+    @Bean
+    public LoggingMeterRegistry loggingMeterRegistry() {
+        return LoggingMeterRegistry.builder(LoggingRegistryConfig.DEFAULT)
+            .clock(Clock.SYSTEM)
+            .loggingSink(line -> {
+                // Custom format: [MetricName] Value BaseUnit Tags
+                String[] parts = line.split(" ");
+                if (parts.length >= 2) {
+                    String metricName = parts[0];
+                    String value = parts[1];
+                    String formattedLine = String.format("[%s] %s %s", 
+                        metricName,
+                        value,
+                        String.join(" ", Arrays.copyOfRange(parts, 2, parts.length)));
+                    logger.info(formattedLine);
                 } else {
-                    lag = end - committed;
+                    logger.info(line);
                 }
-
-                System.out.printf(
-                        "Partition %d: committed=%d, start=%d, end=%d, lag=%d%s%n",
-                        tp.partition(), committed, start, end, lag, phantomLag ? " (phantom lag!)" : ""
-                );
-            }
-        }
+            })
+            .build();
     }
 }
