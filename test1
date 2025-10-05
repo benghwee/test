@@ -24,3 +24,190 @@ public class MetricsConfig {
             .build();
     }
 }
+
+
+
+import io.kubernetes.client.openapi.ApiClient;
+import io.kubernetes.client.openapi.apis.CoreV1Api;
+import io.kubernetes.client.openapi.models.V1Pod;
+import io.kubernetes.client.util.ClientBuilder;
+import io.kubernetes.client.util.KubeConfig;
+import io.kubernetes.client.util.Streams;
+
+import javax.swing.*;
+import java.awt.*;
+import java.awt.event.ActionEvent;
+import java.io.*;
+import java.util.List;
+import java.util.stream.Collectors;
+
+public class KubernetesLogViewer extends JFrame {
+
+    private JComboBox<String> namespaceBox;
+    private JComboBox<String> podBox;
+    private JTextArea logArea;
+    private JButton startButton;
+    private JButton stopButton;
+
+    private transient CoreV1Api api;
+    private transient Thread logThread;
+    private volatile boolean running = false;
+
+    public KubernetesLogViewer() {
+        super("Kubernetes Pod Log Viewer");
+
+        initKubernetesClient();
+        initUI();
+        loadNamespaces();
+    }
+
+    private void initKubernetesClient() {
+        try {
+            // Load Kube config (from ~/.kube/config)
+            String kubeConfigPath = System.getProperty("user.home") + "/.kube/config";
+            ApiClient client = ClientBuilder.kubeconfig(KubeConfig.loadKubeConfig(new FileReader(kubeConfigPath))).build();
+            io.kubernetes.client.openapi.Configuration.setDefaultApiClient(client);
+            this.api = new CoreV1Api(client);
+        } catch (Exception e) {
+            JOptionPane.showMessageDialog(this, "Failed to load kube config: " + e.getMessage());
+        }
+    }
+
+    private void initUI() {
+        setLayout(new BorderLayout());
+
+        // Top panel for controls
+        JPanel controlPanel = new JPanel();
+        namespaceBox = new JComboBox<>();
+        podBox = new JComboBox<>();
+        startButton = new JButton("Start Tail");
+        stopButton = new JButton("Stop");
+
+        controlPanel.add(new JLabel("Namespace:"));
+        controlPanel.add(namespaceBox);
+        controlPanel.add(new JLabel("Pod:"));
+        controlPanel.add(podBox);
+        controlPanel.add(startButton);
+        controlPanel.add(stopButton);
+
+        add(controlPanel, BorderLayout.NORTH);
+
+        // Text area for logs
+        logArea = new JTextArea();
+        logArea.setEditable(false);
+        logArea.setFont(new Font(Font.MONOSPACED, Font.PLAIN, 12));
+        add(new JScrollPane(logArea), BorderLayout.CENTER);
+
+        startButton.addActionListener(this::startTail);
+        stopButton.addActionListener(e -> stopTail());
+
+        namespaceBox.addActionListener(e -> loadPods());
+
+        setSize(800, 600);
+        setDefaultCloseOperation(EXIT_ON_CLOSE);
+        setLocationRelativeTo(null);
+    }
+
+    private void loadNamespaces() {
+        SwingWorker<List<String>, Void> worker = new SwingWorker<>() {
+            @Override
+            protected List<String> doInBackground() throws Exception {
+                return api.listNamespace(null, null, null, null, null, null, null, null, null, null)
+                        .getItems()
+                        .stream()
+                        .map(ns -> ns.getMetadata().getName())
+                        .collect(Collectors.toList());
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    namespaceBox.removeAllItems();
+                    for (String ns : get()) {
+                        namespaceBox.addItem(ns);
+                    }
+                    if (namespaceBox.getItemCount() > 0) {
+                        namespaceBox.setSelectedIndex(0);
+                        loadPods();
+                    }
+                } catch (Exception e) {
+                    logArea.append("Error loading namespaces: " + e.getMessage() + "\n");
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private void loadPods() {
+        String ns = (String) namespaceBox.getSelectedItem();
+        if (ns == null) return;
+
+        SwingWorker<List<String>, Void> worker = new SwingWorker<>() {
+            @Override
+            protected List<String> doInBackground() throws Exception {
+                return api.listNamespacedPod(ns, null, null, null, null, null, null, null, null, null, null)
+                        .getItems()
+                        .stream()
+                        .map(p -> p.getMetadata().getName())
+                        .collect(Collectors.toList());
+            }
+
+            @Override
+            protected void done() {
+                try {
+                    podBox.removeAllItems();
+                    for (String pod : get()) {
+                        podBox.addItem(pod);
+                    }
+                } catch (Exception e) {
+                    logArea.append("Error loading pods: " + e.getMessage() + "\n");
+                }
+            }
+        };
+        worker.execute();
+    }
+
+    private void startTail(ActionEvent e) {
+        if (running) return;
+
+        String ns = (String) namespaceBox.getSelectedItem();
+        String pod = (String) podBox.getSelectedItem();
+        if (ns == null || pod == null) {
+            JOptionPane.showMessageDialog(this, "Select a namespace and pod first.");
+            return;
+        }
+
+        running = true;
+        logArea.setText("");
+
+        logThread = new Thread(() -> {
+            try (InputStream logStream = api.readNamespacedPodLog(
+                    pod, ns, null, null, null, null, true,
+                    null, null, 10, true)) {
+
+                BufferedReader reader = new BufferedReader(new InputStreamReader(logStream));
+                String line;
+                while (running && (line = reader.readLine()) != null) {
+                    String logLine = line;
+                    SwingUtilities.invokeLater(() -> logArea.append(logLine + "\n"));
+                }
+            } catch (Exception ex) {
+                SwingUtilities.invokeLater(() ->
+                        logArea.append("Error reading logs: " + ex.getMessage() + "\n"));
+            }
+        });
+        logThread.start();
+    }
+
+    private void stopTail() {
+        running = false;
+        if (logThread != null && logThread.isAlive()) {
+            logThread.interrupt();
+        }
+    }
+
+    public static void main(String[] args) {
+        SwingUtilities.invokeLater(() -> new KubernetesLogViewer().setVisible(true));
+    }
+}
+
