@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  name: local-windows-pv
+spec:
+  capacity:
+    storage: 10Gi # Adjust capacity as needed
+  accessModes:
+    - ReadWriteOnce
+  persistentVolumeReclaimPolicy: Retain
+  storageClassName: local-storage # Use a suitable storage class, or create one
+  hostPath:
+    path: "C:\\k8s_data" # Specify the path on your Windows drive
+    type: DirectoryOrCreate

@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ocp-demo-app
+spec:
+  selector:
+    matchLabels:
+      app: ocp-demo-app
+  replicas: 3
+  template:
+    metadata:
+      labels:
+        app: ocp-demo-app
+    spec:
+      containers:
+      - name: ocp-demo-app
+        image: test/ocp-demo-app:v1
+        ports:
+        - containerPort: 8080
+        livenessProbe:
+          httpGet:
+            path: /actuator/health
+            port: ocp-demo-app
+          initialDelaySeconds: 30
+          timeoutSeconds: 1          
