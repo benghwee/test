@@ -1,0 +1,162 @@
+#!/bin/bash
+
+set -e
+
+VERSION="7.9.4"
+ARCHIVE="confluent-${VERSION}.tar.gz"
+URL="https://packages.confluent.io/archive/7.9/${ARCHIVE}"
+DIR="confluent-${VERSION}"
+
+KAFKA_CONFIG="$DIR/etc/kafka/kraft/server.properties"
+SCHEMA_CONFIG="$DIR/etc/schema-registry/schema-registry.properties"
+
+KAFKA_PID="kafka.pid"
+SCHEMA_PID="schema-registry.pid"
+
+KAFKA_LOG="kafka.log"
+SCHEMA_LOG="schema-registry.log"
+
+download() {
+  if [ ! -f "$ARCHIVE" ]; then
+    echo "Downloading Confluent Platform $VERSION"
+    curl -O $URL
+  else
+    echo "Archive exists"
+  fi
+}
+
+extract() {
+  if [ ! -d "$DIR" ]; then
+    echo "Extracting $ARCHIVE"
+    tar -xzf $ARCHIVE
+  fi
+}
+
+format_storage() {
+
+  LOG_DIR=$(grep "^log.dirs=" $KAFKA_CONFIG | cut -d= -f2)
+
+  if [ -f "$LOG_DIR/meta.properties" ]; then
+    echo "Kafka storage already formatted"
+    return
+  fi
+
+  echo "Formatting Kafka storage..."
+
+  CLUSTER_ID=$($DIR/bin/kafka-storage random-uuid)
+
+  $DIR/bin/kafka-storage format \
+    -t $CLUSTER_ID \
+    -c $KAFKA_CONFIG
+}
+
+start_kafka() {
+
+  if [ -f "$KAFKA_PID" ]; then
+    echo "Kafka already running"
+    return
+  fi
+
+  echo "Starting Kafka (KRaft)..."
+
+  $DIR/bin/kafka-server-start $KAFKA_CONFIG \
+    > $KAFKA_LOG 2>&1 &
+
+  echo $! > $KAFKA_PID
+
+  sleep 8
+}
+
+start_schema() {
+
+  if [ -f "$SCHEMA_PID" ]; then
+    echo "Schema Registry already running"
+    return
+  fi
+
+  echo "Starting Schema Registry..."
+
+  $DIR/bin/schema-registry-start $SCHEMA_CONFIG \
+    > $SCHEMA_LOG 2>&1 &
+
+  echo $! > $SCHEMA_PID
+}
+
+stop_service() {
+
+  PID_FILE=$1
+
+  if [ -f "$PID_FILE" ]; then
+    PID=$(cat $PID_FILE)
+    echo "Stopping PID $PID"
+    kill $PID
+    rm $PID_FILE
+  fi
+}
+
+status() {
+
+  echo "---- Kafka ----"
+  if [ -f "$KAFKA_PID" ]; then
+    ps -p $(cat $KAFKA_PID)
+  else
+    echo "Kafka not running"
+  fi
+
+  echo "---- Schema Registry ----"
+  if [ -f "$SCHEMA_PID" ]; then
+    ps -p $(cat $SCHEMA_PID)
+  else
+    echo "Schema Registry not running"
+  fi
+}
+
+reset() {
+
+  LOG_DIR=$(grep "^log.dirs=" $KAFKA_CONFIG | cut -d= -f2)
+
+  echo "Removing Kafka data directory $LOG_DIR"
+  rm -rf $LOG_DIR
+}
+
+case "$1" in
+  setup)
+    download
+    extract
+    format_storage
+    ;;
+
+  start)
+    start_kafka
+    start_schema
+    ;;
+
+  stop)
+    stop_service $SCHEMA_PID
+    stop_service $KAFKA_PID
+    ;;
+
+  restart)
+    $0 stop
+    sleep 3
+    $0 start
+    ;;
+
+  status)
+    status
+    ;;
+
+  reset)
+    reset
+    ;;
+
+  *)
+    echo "Usage:"
+    echo "./confluent-kraft.sh setup"
+    echo "./confluent-kraft.sh start"
+    echo "./confluent-kraft.sh stop"
+    echo "./confluent-kraft.sh restart"
+    echo "./confluent-kraft.sh status"
+    echo "./confluent-kraft.sh reset"
+    ;;
+esac
