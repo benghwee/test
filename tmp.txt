@@ -1,0 +1,61 @@
+// Load PFX into a KeyStore
+KeyStore keyStore = KeyStore.getInstance("PKCS12");
+try (InputStream fis = new FileInputStream("client.pfx")) {
+    keyStore.load(fis, "your_password".toCharArray());
+}
+
+// Set up KeyManager for client authentication
+KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+kmf.init(keyStore, "your_password".toCharArray());
+
+// Initialize SSLContext
+SSLContext sslContext = SSLContext.getInstance("TLS");
+sslContext.init(kmf.getKeyManagers(), null, new SecureRandom());
+SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
+
+ServerSocket serverSocket = new ServerSocket(8888); // Proxy port
+System.out.println("Proxy listening on port 8888...");
+
+while (true) {
+    Socket clientSocket = serverSocket.accept();
+    new Thread(() -> handleProxy(clientSocket, sslSocketFactory)).start();
+}
+
+private static void handleProxy(Socket clientSocket, SSLSocketFactory sslFact) {
+    try (Socket targetSocket = sslFact.createSocket("destination-host.com", 443)) {
+        // Start SSL handshake with PFX identity
+        ((SSLSocket) targetSocket).startHandshake();
+
+        // Start two threads to bridge the streams bi-directionally
+        Thread clientToServer = new Thread(() -> pipe(clientSocket, targetSocket));
+        Thread serverToClient = new Thread(() -> pipe(targetSocket, clientSocket));
+
+        clientToServer.start();
+        serverToClient.start();
+
+        clientToServer.join();
+        serverToClient.join();
+    } catch (Exception e) {
+        e.printStackTrace();
+    }
+}
+
+// Utility to copy bytes between sockets
+private static void pipe(Socket src, Socket dest) {
+    try (InputStream in = src.getInputStream(); OutputStream out = dest.getOutputStream()) {
+        byte[] buffer = new byte[8192];
+        int read;
+        while ((read = in.read(buffer)) != -1) {
+            out.write(buffer, 0, read);
+            out.flush();
+        }
+    } catch (IOException ignored) {}
+}
+
+
+
+
+
+
+
+
