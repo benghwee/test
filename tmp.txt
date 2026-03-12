@@ -1,117 +1,36 @@
-// Load PFX into a KeyStore
-KeyStore keyStore = KeyStore.getInstance("PKCS12");
-try (InputStream fis = new FileInputStream("client.pfx")) {
-    keyStore.load(fis, "your_password".toCharArray());
-}
+@Service
+public class MitmProxyService {
 
-// Set up KeyManager for client authentication
-KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-kmf.init(keyStore, "your_password".toCharArray());
+    private HttpProxyServer proxyServer;
 
-// Initialize SSLContext
-SSLContext sslContext = SSLContext.getInstance("TLS");
-sslContext.init(kmf.getKeyManagers(), null, new SecureRandom());
-SSLSocketFactory sslSocketFactory = sslContext.getSocketFactory();
-
-ServerSocket serverSocket = new ServerSocket(8888); // Proxy port
-System.out.println("Proxy listening on port 8888...");
-
-while (true) {
-    Socket clientSocket = serverSocket.accept();
-    new Thread(() -> handleProxy(clientSocket, sslSocketFactory)).start();
-}
-
-private static void handleProxy(Socket clientSocket, SSLSocketFactory sslFact) {
-    try (Socket targetSocket = sslFact.createSocket("destination-host.com", 443)) {
-        // Start SSL handshake with PFX identity
-        ((SSLSocket) targetSocket).startHandshake();
-
-        // Start two threads to bridge the streams bi-directionally
-        Thread clientToServer = new Thread(() -> pipe(clientSocket, targetSocket));
-        Thread serverToClient = new Thread(() -> pipe(targetSocket, clientSocket));
-
-        clientToServer.start();
-        serverToClient.start();
-
-        clientToServer.join();
-        serverToClient.join();
-    } catch (Exception e) {
-        e.printStackTrace();
-    }
-}
-
-// Utility to copy bytes between sockets
-private static void pipe(Socket src, Socket dest) {
-    try (InputStream in = src.getInputStream(); OutputStream out = dest.getOutputStream()) {
-        byte[] buffer = new byte[8192];
-        int read;
-        while ((read = in.read(buffer)) != -1) {
-            out.write(buffer, 0, read);
-            out.flush();
-        }
-    } catch (IOException ignored) {}
-}
-
-
-
-
-@Configuration
-public class ProxyConfig {
-
-    @Bean
-    public RestTemplate restTemplate() throws Exception {
-        String pfxPath = "src/main/resources/certificate.pfx";
-        String password = "your_password";
-
-        // Load PFX into KeyStore
-        KeyStore keyStore = KeyStore.getInstance("PKCS12");
-        try (FileInputStream fis = new FileInputStream(pfxPath)) {
-            keyStore.load(fis, password.toCharArray());
+    @PostConstruct
+    public void startProxy() throws Exception {
+        // Load your PFX for upstream (client) auth
+        KeyStore pfxStore = KeyStore.getInstance("PKCS12");
+        try (InputStream in = new FileInputStream("path/to/client.pfx")) {
+            pfxStore.load(in, "password".toCharArray());
         }
 
-        // Initialize KeyManager with the PFX
-        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
-        kmf.init(keyStore, password.toCharArray());
+        // Configure MITM Manager to intercept traffic
+        SelfSignedMitmManager mitmManager = SelfSignedMitmManager.builder()
+            .build(); // In a real MITM, this generates/uses a CA to sign on-the-fly certs
 
-        // Setup SSLContext
-        SSLContext sslContext = SSLContext.getInstance("TLS");
-        sslContext.init(kmf.getKeyManagers(), null, new SecureRandom());
-
-        // Create HttpClient with the custom SSLContext
-        HttpClient httpClient = HttpClients.custom()
-                .setSSLContext(sslContext)
-                .build();
-
-        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
-        return new RestTemplate(factory);
+        proxyServer = DefaultHttpProxyServer.bootstrap()
+            .withPort(8081)
+            .withManInTheMiddle(mitmManager)
+            .withFiltersSource(new HttpFiltersSourceAdapter() {
+                @Override
+                public HttpFilters filterRequest(HttpRequest originalRequest) {
+                    return new HttpFiltersAdapter(originalRequest) {
+                        @Override
+                        public HttpResponse clientToProxyRequest(HttpObject httpObject) {
+                            // INTERCEPT: Log or modify request here
+                            System.out.println("Intercepted: " + originalRequest.uri());
+                            return null;
+                        }
+                    };
+                }
+            })
+            .start();
     }
 }
-
-@RestController
-public class ProxyController {
-
-    @Autowired
-    private RestTemplate restTemplate;
-
-    private final String TARGET_SERVER = "https://api.target-server.com";
-
-    @RequestMapping("/proxy/**")
-    public ResponseEntity<byte[]> proxyRequest(HttpServletRequest request, @RequestBody(required = false) byte[] body) {
-        // Construct the target URL
-        String path = request.getRequestURI().replace("/proxy", "");
-        String url = TARGET_SERVER + path + (request.getQueryString() != null ? "?" + request.getQueryString() : "");
-
-        // Map incoming headers to outgoing headers
-        HttpHeaders headers = new HttpHeaders();
-        Collections.list(request.getHeaderNames()).forEach(name -> 
-            headers.add(name, request.getHeader(name))
-        );
-
-        // Forward the request using the RestTemplate (which uses the PFX)
-        HttpEntity<byte[]> entity = new HttpEntity<>(body, headers);
-        return restTemplate.exchange(url, HttpMethod.valueOf(request.getMethod()), entity, byte[].class);
-    }
-}
-
-
-
