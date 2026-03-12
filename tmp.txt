@@ -55,7 +55,63 @@ private static void pipe(Socket src, Socket dest) {
 
 
 
+@Configuration
+public class ProxyConfig {
 
+    @Bean
+    public RestTemplate restTemplate() throws Exception {
+        String pfxPath = "src/main/resources/certificate.pfx";
+        String password = "your_password";
+
+        // Load PFX into KeyStore
+        KeyStore keyStore = KeyStore.getInstance("PKCS12");
+        try (FileInputStream fis = new FileInputStream(pfxPath)) {
+            keyStore.load(fis, password.toCharArray());
+        }
+
+        // Initialize KeyManager with the PFX
+        KeyManagerFactory kmf = KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm());
+        kmf.init(keyStore, password.toCharArray());
+
+        // Setup SSLContext
+        SSLContext sslContext = SSLContext.getInstance("TLS");
+        sslContext.init(kmf.getKeyManagers(), null, new SecureRandom());
+
+        // Create HttpClient with the custom SSLContext
+        HttpClient httpClient = HttpClients.custom()
+                .setSSLContext(sslContext)
+                .build();
+
+        HttpComponentsClientHttpRequestFactory factory = new HttpComponentsClientHttpRequestFactory(httpClient);
+        return new RestTemplate(factory);
+    }
+}
+
+@RestController
+public class ProxyController {
+
+    @Autowired
+    private RestTemplate restTemplate;
+
+    private final String TARGET_SERVER = "https://api.target-server.com";
+
+    @RequestMapping("/proxy/**")
+    public ResponseEntity<byte[]> proxyRequest(HttpServletRequest request, @RequestBody(required = false) byte[] body) {
+        // Construct the target URL
+        String path = request.getRequestURI().replace("/proxy", "");
+        String url = TARGET_SERVER + path + (request.getQueryString() != null ? "?" + request.getQueryString() : "");
+
+        // Map incoming headers to outgoing headers
+        HttpHeaders headers = new HttpHeaders();
+        Collections.list(request.getHeaderNames()).forEach(name -> 
+            headers.add(name, request.getHeader(name))
+        );
+
+        // Forward the request using the RestTemplate (which uses the PFX)
+        HttpEntity<byte[]> entity = new HttpEntity<>(body, headers);
+        return restTemplate.exchange(url, HttpMethod.valueOf(request.getMethod()), entity, byte[].class);
+    }
+}
 
 
 
